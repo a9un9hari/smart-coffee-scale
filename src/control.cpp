@@ -56,11 +56,12 @@ void GrinderController::readSensors(uint32_t now) {
     _last_sensor_read_ms = now;
 
     float raw_weight = _scale.readWeight();
-    if (_scale.getStatus() != HX711_OK) {
-        // load cell error is not automatically fatal (transient timeouts happen) -
-        // the state machine only escalates it via EVT_ERROR_OCCURRED where relevant
-        _status.error_code = 2; // see hx711.h HX711Status for the underlying cause
-    }
+    // Reflects only the latest read, not "sticky" - a transient HX711 timeout
+    // (routine, see docs/DEVELOPMENT-LOG.md's HX711 entry) shouldn't pin this
+    // at a non-zero value forever once reads start succeeding again. Not
+    // automatically fatal either way - the state machine only escalates via
+    // EVT_ERROR_OCCURRED where relevant.
+    _status.error_code = (_scale.getStatus() == HX711_OK) ? 0 : 2; // see hx711.h HX711Status for the underlying cause
 
     if (!_filter_initialized) {
         _filtered_weight_g = raw_weight;
