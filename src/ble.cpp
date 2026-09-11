@@ -109,12 +109,23 @@ private:
     BleServer *_server;
 };
 
+// NimBLE stops advertising once a central connects, and does NOT resume it
+// automatically on disconnect - without this, the device becomes invisible
+// to everyone else (or even to the same central reconnecting) the moment
+// any one client disconnects, until the board is rebooted.
+class ServerCallbacks : public NimBLEServerCallbacks {
+    void onDisconnect(NimBLEServer *server) override {
+        NimBLEDevice::getAdvertising()->start();
+    }
+};
+
 void BleServer::begin() {
     _command_queue = xQueueCreate(8, sizeof(BleCommand));
 
     NimBLEDevice::init("SmartGrinder");
 
     NimBLEServer *server = NimBLEDevice::createServer();
+    server->setCallbacks(new ServerCallbacks());
     NimBLEService *service = server->createService(GRINDER_SERVICE_UUID);
 
     _status_char = service->createCharacteristic(
