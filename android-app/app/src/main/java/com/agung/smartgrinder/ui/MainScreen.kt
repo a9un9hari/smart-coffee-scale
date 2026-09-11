@@ -1,9 +1,11 @@
 package com.agung.smartgrinder.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,11 +15,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agung.smartgrinder.GrinderViewModel
 import com.agung.smartgrinder.ShotSample
 import com.agung.smartgrinder.ble.*
+
+// Fixed series colors (not theme-derived) so weight/flow-rate stay visually
+// consistent with the legend regardless of light/dark theme - mirrors the
+// teal/coral convention common in espresso shot-timer apps.
+private val WeightLineColor = Color(0xFF14B8A6)
+private val FlowLineColor = Color(0xFFEF4444)
 
 @Composable
 fun MainScreen(
@@ -207,62 +216,116 @@ private fun computeFlowRate(samples: List<ShotSample>, smoothWindow: Int = 3): L
     }
 }
 
+/** Combined weight + flow-rate shot graph, one time axis, two independent y-scales - matches the shot-timer layout common in espresso/pour-over apps. */
 @Composable
 private fun EspressoShotSection(samples: List<ShotSample>) {
     val weightPoints = remember(samples) { samples.map { it.tSeconds to it.weightG } }
     val flowPoints = remember(samples) { computeFlowRate(samples) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Shot graph", style = MaterialTheme.typography.titleMedium)
-        TimeSeriesChart("Weight", weightPoints, "g", MaterialTheme.colorScheme.primary)
-        TimeSeriesChart("Flow rate", flowPoints, "g/s", MaterialTheme.colorScheme.tertiary)
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Shot graph", style = MaterialTheme.typography.titleMedium)
+            ChartLegend()
+
+            if (weightPoints.size < 2) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(180.dp),
+                    contentAlignment = Alignment.Center
+                ) { Text("Waiting for shot to start...", style = MaterialTheme.typography.bodySmall) }
+            } else {
+                val maxT = weightPoints.last().first.coerceAtLeast(1f)
+                val maxWeight = weightPoints.maxOf { it.second }.coerceAtLeast(1f)
+                val maxFlow = (flowPoints.maxOfOrNull { it.second } ?: 1f).coerceAtLeast(1f)
+                val gridColor = MaterialTheme.colorScheme.outlineVariant
+
+                Row(modifier = Modifier.fillMaxWidth().height(180.dp)) {
+                    AxisLabels(maxFlow, alignEnd = false, modifier = Modifier.width(32.dp).fillMaxHeight())
+
+                    Canvas(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        val steps = 4
+                        for (i in 0..steps) {
+                            val y = size.height * (1f - i.toFloat() / steps)
+                            drawLine(gridColor.copy(alpha = 0.4f), Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
+                        }
+
+                        fun mapXt(t: Float) = (t / maxT) * size.width
+                        fun mapYWeight(w: Float) = size.height - (w / maxWeight) * size.height
+                        fun mapYFlow(f: Float) = size.height - (f / maxFlow) * size.height
+
+                        val weightPath = Path()
+                        weightPoints.forEachIndexed { i, (t, w) ->
+                            val x = mapXt(t); val y = mapYWeight(w)
+                            if (i == 0) weightPath.moveTo(x, y) else weightPath.lineTo(x, y)
+                        }
+                        drawPath(weightPath, color = WeightLineColor, style = Stroke(width = 5f))
+
+                        val flowPath = Path()
+                        flowPoints.forEachIndexed { i, (t, f) ->
+                            val x = mapXt(t); val y = mapYFlow(f)
+                            if (i == 0) flowPath.moveTo(x, y) else flowPath.lineTo(x, y)
+                        }
+                        drawPath(flowPath, color = FlowLineColor, style = Stroke(width = 4f))
+                    }
+
+                    AxisLabels(maxWeight, alignEnd = true, modifier = Modifier.width(32.dp).fillMaxHeight())
+                }
+
+                Row(modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 32.dp)) {
+                    val steps = 4
+                    for (i in 0..steps) {
+                        Text(
+                            formatShotTime(maxT * i / steps),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.weight(1f),
+                            textAlign = if (i == 0) TextAlign.Start else if (i == steps) TextAlign.End else TextAlign.Center
+                        )
+                    }
+                }
+
+                val lastW = weightPoints.last().second
+                val lastF = flowPoints.lastOrNull()?.second ?: 0f
+                Text(
+                    "%.1fg  ·  %.1fg/s  ·  %s".format(lastW, lastF, formatShotTime(weightPoints.last().first)),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun TimeSeriesChart(title: String, points: List<Pair<Float, Float>>, unit: String, lineColor: Color) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            if (points.size < 2) {
-                Box(
-                    modifier = Modifier.fillMaxWidth().height(140.dp),
-                    contentAlignment = Alignment.Center
-                ) { Text("Waiting for shot to start...", style = MaterialTheme.typography.bodySmall) }
-                return@Column
-            }
+private fun ChartLegend() {
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        LegendItem(WeightLineColor, "Weight")
+        LegendItem(FlowLineColor, "Flow rate")
+    }
+}
 
-            val maxX = points.last().first.coerceAtLeast(1f)
-            val maxY = points.maxOf { it.second }.coerceAtLeast(0.1f)
-            val minY = points.minOf { it.second }.coerceAtMost(0f)
-            val spanY = (maxY - minY).coerceAtLeast(0.1f)
+@Composable
+private fun LegendItem(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(modifier = Modifier.size(10.dp).background(color, CircleShape))
+        Text(label, style = MaterialTheme.typography.labelMedium)
+    }
+}
 
-            Canvas(modifier = Modifier.fillMaxWidth().height(140.dp)) {
-                fun mapX(x: Float) = (x / maxX) * size.width
-                fun mapY(y: Float) = size.height - ((y - minY) / spanY) * size.height
-
-                drawLine(
-                    Color.Gray.copy(alpha = 0.3f),
-                    Offset(0f, mapY(0f)),
-                    Offset(size.width, mapY(0f)),
-                    strokeWidth = 1f
-                )
-
-                val path = Path()
-                points.forEachIndexed { i, (x, y) ->
-                    val px = mapX(x)
-                    val py = mapY(y)
-                    if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
-                }
-                drawPath(path, color = lineColor, style = Stroke(width = 4f))
-            }
-
-            Text(
-                "%.1f%s at %.1fs".format(points.last().second, unit, points.last().first),
-                style = MaterialTheme.typography.bodySmall
-            )
+@Composable
+private fun AxisLabels(maxValue: Float, alignEnd: Boolean, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.SpaceBetween,
+        horizontalAlignment = if (alignEnd) Alignment.End else Alignment.Start
+    ) {
+        val steps = 4
+        for (i in steps downTo 0) {
+            Text("%.0f".format(maxValue * i / steps), style = MaterialTheme.typography.labelSmall)
         }
     }
+}
+
+private fun formatShotTime(tSeconds: Float): String {
+    val total = tSeconds.toInt().coerceAtLeast(0)
+    return "%d:%02d".format(total / 60, total % 60)
 }
 
 @Composable

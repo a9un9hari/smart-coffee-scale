@@ -8,6 +8,8 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 enum class ConnectionState { DISCONNECTED, SCANNING, CONNECTING, CONNECTED }
 
 private const val DEVICE_NAME = "SmartGrinder"
+private const val OP_TIMEOUT_MS = 4000L
 
 /**
  * BLE central for the grinder. Talks to the GATT server defined in
@@ -52,24 +55,54 @@ class GrinderBleManager(private val context: Context) {
 
     private val opQueue = ArrayDeque<() -> Unit>()
     private var opInFlight = false
+    private var currentOpToken = 0
+    private val timeoutHandler = Handler(Looper.getMainLooper())
     private var pendingCupProfileResult: ((CupProfile) -> Unit)? = null
 
+    // A single dropped GATT callback (known to happen on real devices/stacks)
+    // must never permanently jam the queue - every command after it would
+    // silently do nothing forever. If a callback doesn't arrive within this
+    // window, give up on that op and move on.
     private fun enqueue(op: () -> Unit) = synchronized(opQueue) {
         opQueue.addLast(op)
-        if (!opInFlight) dequeueNext()
+        if (!opInFlight) startNext()
     }
 
-    private fun dequeueNext() = synchronized(opQueue) {
-        val next = opQueue.removeFirstOrNull()
-        if (next == null) {
-            opInFlight = false
-        } else {
-            opInFlight = true
-            next()
+    private fun startNext() {
+        var next: (() -> Unit)? = null
+        synchronized(opQueue) {
+            next = opQueue.removeFirstOrNull()
+            if (next == null) {
+                opInFlight = false
+            } else {
+                opInFlight = true
+                currentOpToken++
+            }
         }
+        val op = next ?: return
+        val token = currentOpToken
+        op()
+        timeoutHandler.postDelayed({ onOpTimeout(token) }, OP_TIMEOUT_MS)
     }
 
-    private fun completeOp() = dequeueNext()
+    private fun onOpTimeout(token: Int) {
+        val stillCurrent = synchronized(opQueue) { opInFlight && token == currentOpToken }
+        if (stillCurrent) startNext() // give up waiting, move the queue along
+    }
+
+    private fun completeOp() {
+        val wasCurrent = synchronized(opQueue) { opInFlight }
+        if (!wasCurrent) return
+        timeoutHandler.removeCallbacksAndMessages(null)
+        startNext()
+    }
+
+    private fun resetQueue() = synchronized(opQueue) {
+        opQueue.clear()
+        opInFlight = false
+        currentOpToken++ // invalidates any in-flight timeout from the old connection
+        timeoutHandler.removeCallbacksAndMessages(null)
+    }
 
     @SuppressLint("MissingPermission")
     fun connect() {
@@ -107,6 +140,7 @@ class GrinderBleManager(private val context: Context) {
                     _connectionState.value = ConnectionState.DISCONNECTED
                     _status.value = null
                     gatt = null
+                    resetQueue()
                 }
             }
         }
@@ -238,5 +272,6 @@ class GrinderBleManager(private val context: Context) {
         gatt?.close()
         gatt = null
         _connectionState.value = ConnectionState.DISCONNECTED
+        resetQueue()
     }
 }
