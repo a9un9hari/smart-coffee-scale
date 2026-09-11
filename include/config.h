@@ -29,10 +29,17 @@
 #define PIN_ENCODER_DT      6
 #define PIN_ENCODER_SW      7
 
-// Display: OLED SSD1306 128x64, I2C (this is the display actually received -
-// the original prompt framework's ST7789 SPI example doesn't apply here)
-#define PIN_DISPLAY_SDA     21
-#define PIN_DISPLAY_SCL     20
+// Display: 1.3" ST7789VW 240x240 SPI, confirmed from the module's printed
+// spec sheet. (The docs/Reference Guide claimed OLED I2C - that was wrong;
+// this is genuinely the ST7789 the original prompt framework assumed.)
+// Module exposes 7 pins (VCC/GND/SCK/SDA/RES/DC/BLK) - no CS pin, it's tied
+// to GND internally, hence TFT_CS=-1 in platformio.ini. RES and BLK are
+// wired straight to 3.3V (no GPIO needed) - TFT_RST=-1 tells TFT_eSPI to
+// skip hardware reset and use a software reset command instead, and
+// backlight just stays always-on.
+#define PIN_DISPLAY_SCLK    8
+#define PIN_DISPLAY_MOSI    10
+#define PIN_DISPLAY_DC      21
 
 // ============================================================
 // SENSOR CONSTANTS

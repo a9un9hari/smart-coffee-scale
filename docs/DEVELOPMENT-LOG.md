@@ -151,6 +151,35 @@ board, and there's no pressing need to churn it.
 
 ---
 
+## 2026-09-11: Display corrected back to ST7789 - the reference guide was wrong
+
+The previous entry's OLED swap turned out to be based on bad information.
+While physically wiring the display, the module's pins didn't match an I2C
+OLED at all (no SDA/SCL, and OLEDs have no backlight to control) - they
+were VCC, GND, SCK, SDA, RES, DC, BLK. User checked the module's printed
+spec sheet: it's a genuine **1.3" ST7789VW 240x240 SPI IPS panel**, no CS
+pin exposed (tied to GND internally on the module). This is exactly what
+the original `VIBE-CODING-PROMPT-FRAMEWORK.md` prompt assumed from the
+start - the very first display implementation (before the reference guide
+was ever read) was the correct one.
+
+Reverted `display.h/.cpp` back to TFT_eSPI/ST7789, restored the
+`espressif32@6.5.0` platform pin (its TFT_eSPI SPI-register bug applies
+again), and set `TFT_CS=-1` in `platformio.ini` (previously `20`) since
+this module has no CS pin to drive. Final, now-physically-verified pin map:
+SCLK=GPIO8, MOSI(SDA)=GPIO10, DC=GPIO21, CS=none, RES and BLK wired
+directly to 3.3V (not GPIO - no software control needed for either).
+Compiles clean; hardware upload/boot re-test pending the board being
+reconnected after soldering.
+
+**Lesson:** the reference guide's claims about anything beyond GPIO0-7
+(pin map *and* component identity) have now been wrong twice in the same
+session. Treat it as a *lead* to check against the physical part in hand,
+not a source of truth - see the "Known deviations" and pin-map-discrepancy
+notes below.
+
+---
+
 ## Known deviations from the original prompt framework
 
 Kept here so they don't get "fixed" back to the letter of the doc by
