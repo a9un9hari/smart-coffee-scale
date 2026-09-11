@@ -16,11 +16,14 @@ void GrinderController::begin() {
         _scale.setCalibrationFactor(_calibration.scale_factor);
         _scale.setOffset(_calibration.offset);
     } else {
-        // first boot / corrupt flash: fall back to a physical tare + factory scale
-        _scale.setCalibrationFactor(0.01f); // placeholder, recalibrate with a known weight
+        // first boot / corrupt flash: fall back to a physical tare + factory scale.
+        // -0.001547 g/count: empirically corrected 2026-09-11 by comparing a
+        // known 33.4g weight against this firmware's own live reading (an
+        // initial raw-delta estimate of -0.000691 undershot by ~2.24x).
+        _scale.setCalibrationFactor(-0.001547f);
         _scale.tare();
         _calibration.offset = _scale.getOffset();
-        _calibration.scale_factor = 0.01f;
+        _calibration.scale_factor = -0.001547f;
         _calibration.target_weight_g = 18.0f;
         _calibration.wear_counter = 0;
         _storage.save(_calibration);

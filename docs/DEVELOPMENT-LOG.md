@@ -237,6 +237,54 @@ way and has none of TFT_eSPI's register-hack fragility).
 
 ---
 
+## 2026-09-11: HX711 wired up and calibrated on real hardware
+
+First real sensor to actually work end-to-end. Wired DOUT/CLK/VCC/GND and
+the load cell's 4 wires (Red/Black/White/Green -> E+/E-/A+/A-), then
+diagnosed with a bare-minimum sketch (`HX711` class directly, no
+`GrinderController`) printing raw counts + status every 200ms:
+
+- With nothing connected, raw sat at exactly 0 with zero jitter across 40+
+  samples - a strong signature of a floating DOUT pin, not a real ADC
+  reading (a real strain gauge bridge always has some thermal/quantization
+  noise). Confirmed: HX711 wasn't physically connected yet at that point.
+- Once wired, raw settled around -112,400 with realistic jitter (~140
+  count range) - genuine ADC noise, HX711 confirmed alive. `TIMEOUT`
+  status interspersed with `OK` about half the time is expected and
+  harmless: the HX711 converts at ~10Hz (100ms/sample) internally, and a
+  200ms fixed polling loop with only a 10ms per-attempt timeout
+  (`HX711_TIMEOUT_MS`) will sometimes catch it mid-conversion. Production
+  code (`GrinderController::readSensors`) already handles this correctly
+  via `HX711::readWeight()`'s multi-sample average-with-skip logic - not
+  a bug, nothing to fix.
+- Placed a known 33.4g weight: raw jumped to ~-160,700 (delta ~-48,326
+  counts). First-pass calibration factor from that raw delta alone
+  (`33.4 / -48326 = -0.000691 g/count`) undershot badly when tested
+  through the actual `HX711::readWeight()`/`GrinderController` pipeline
+  live (~14.9g reported for the real 33.4g weight, off by ~2.24x) -
+  likely because that pipeline's 5-sample averaging behaves differently
+  from a raw single-sample diagnostic read, so mixing measurement methods
+  introduced error. Corrected empirically instead: scaled the factor by
+  the observed ratio (33.4/14.92 ≈ 2.24) to get **-0.001547 g/count**,
+  which reads 33.4-33.5g live for the same 33.4g weight - confirmed
+  accurate.
+- **Gotcha hit along the way:** changing the *default* calibration factor
+  in `control.cpp` doesn't do anything once EEPROM already holds a valid
+  (checksummed) `CalibrationData` from an earlier boot - `Storage::restore()`
+  just returns the old saved value and the new source-code default is
+  never reached. Had to temporarily force the fresh-tare/save branch
+  (`if (false && _storage.restore(...))`) to overwrite the stale EEPROM
+  entry, verify the new value live, then revert back to normal
+  restore-first logic. Worth remembering for any future recalibration -
+  a source change alone isn't enough once a device has already saved its
+  own calibration.
+
+Final calibration is now the default in `control.cpp` (used both as the
+fresh-tare fallback *and* already persisted in this board's EEPROM).
+HX711 module is confirmed working correctly end-to-end.
+
+---
+
 ## Known deviations from the original prompt framework
 
 Kept here so they don't get "fixed" back to the letter of the doc by
