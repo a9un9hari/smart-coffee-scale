@@ -29,13 +29,10 @@
 #define PIN_ENCODER_DT      6
 #define PIN_ENCODER_SW      7
 
-// Display (ST7789 SPI) - Phase 2
-// SCLK on GPIO8 (strapping pin, but nothing else free) - if the board ever
-// fails to boot with the display attached, move SCLK off GPIO8 first.
-#define PIN_DISPLAY_SCLK    8
-#define PIN_DISPLAY_MOSI    10
-#define PIN_DISPLAY_CS      20
-#define PIN_DISPLAY_DC      21
+// Display: OLED SSD1306 128x64, I2C (this is the display actually received -
+// the original prompt framework's ST7789 SPI example doesn't apply here)
+#define PIN_DISPLAY_SDA     21
+#define PIN_DISPLAY_SCL     20
 
 // ============================================================
 // SENSOR CONSTANTS
