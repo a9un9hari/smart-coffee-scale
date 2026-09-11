@@ -285,18 +285,97 @@ HX711 module is confirmed working correctly end-to-end.
 
 ---
 
-## Known deviations from the original prompt framework
+## 2026-09-11: Major pivot - dropped physical UI entirely, BLE + Android app instead
 
-Kept here so they don't get "fixed" back to the letter of the doc by
-mistake later:
+With the LCD concluded DOA (previous entry) and buttons/encoder never
+even physically tested, decided not to chase replacement hardware for a
+physical UI at all. New architecture: a native Kotlin Android app talks
+to the ESP32-C3 over BLE (NimBLE-Arduino - the C3 has no Classic
+Bluetooth, so this isn't a simple serial-port emulation, it's a real
+GATT server). `buttons.h/.cpp`, `encoder.h/.cpp`, `display.h/.cpp` are
+deleted entirely, not just unwired. Only HX711 and the SSR motor relay
+remain as physical peripherals.
 
-- No physical STOP button exists (`config.h` only defines START/MODE) -
-  pressing START again while `STATE_GRINDING` acts as abort.
-- Emergency stop (`EVT_EMERGENCY_STOP`) is holding START+MODE together for
-  2 seconds, detected in `GrinderController::readButtons()`.
-- `CalibrationData` supports exactly one saved grind profile
-  (`target_weight_g`), not multiple named profiles - there's no UI to pick
-  between profiles.
-- Display pins and the pinned PlatformIO platform version (see hardware
-  bring-up section above) are hardware-bring-up fixes, not part of the
-  original prompt framework at all.
+Headline feature: the app manages up to 4 "dosing cup" weight profiles.
+Placing a cup matching one on the scale (weight settles within
+tolerance for ~400ms) auto-tares to that cup and starts grinding until
+the *additional* weight equals the target dose - regardless of what the
+cup itself weighs. Implemented as a software baseline
+(`StateMachine::_session_start_weight_g`) captured at grind-start, not a
+hardware retare, so the existing HX711 offset/calibration is untouched.
+
+State machine simplified: `STATE_SELECT_WEIGHT`/`STATE_UPDATE_WEIGHT`
+(encoder menu navigation) are gone - the app sets `target_weight_g`
+directly, any time. Button events replaced with `EVT_CUP_DETECTED`,
+`EVT_BLE_START`, `EVT_BLE_STOP`, and a separate `onModeCommand()` (mode
+switch needs to carry a payload, doesn't fit the plain-enum event
+pattern).
+
+BLE protocol: one custom GATT service, three characteristics, every
+payload kept under 20 bytes on purpose so neither side ever needs MTU
+negotiation - a real source of cross-device flakiness on BLE that's
+simplest to just design around entirely.
+- **Status** (Read+Notify, 12 bytes): weight, target, mode, state,
+  error_code, active_cup_profile_id. Notified ~6-7Hz - this is the
+  direct replacement for the old display refresh throttle.
+- **Command** (Write): first byte opcode, rest is payload
+  (`SET_TARGET_WEIGHT`, `SET_MODE`, `START`, `STOP`,
+  `EMERGENCY_STOP`, `SELECT_CUP_PROFILE`, `SET_CUP_PROFILE_WEIGHT`,
+  `SET_CUP_PROFILE_NAME` - the cup profile's weight/tolerance and its
+  name are two separate writes specifically to keep each one under the
+  20-byte budget).
+- **CupProfileQuery** (Write id, then Read): app writes which profile
+  id it wants, then reads this same characteristic to get that
+  profile's data back - an indexed request/response instead of packing
+  all 4 profiles into one oversized payload.
+
+Because BLE write callbacks run on NimBLE's own FreeRTOS task, not the
+main `loop()`, `BleServer` hands parsed commands to `GrinderController`
+through a small FreeRTOS queue (`xQueueCreate`/`xQueueSend`/
+`xQueueReceive`) rather than mutating shared state directly from the
+callback - the one new concurrency concern this feature introduced,
+worth remembering if a future change touches `ble.cpp`/`ble.h`.
+
+**Verified on real hardware, first try on most of it:**
+`h2zero/NimBLE-Arduino` resolved and built clean immediately (unlike the
+display library naming misses earlier this session). Boots without
+crashing (`NimBle host synced` in the serial log). BLE advertisement
+("SmartGrinder") visible and connectable from an Android phone via nRF
+Connect. Status notifications tracked a real weight placed on the load
+cell live. A `SET_TARGET_WEIGHT` command write round-tripped correctly
+(sent 25.0f, the next Status notification decoded back to exactly
+25.0f).
+
+**Not yet tested:** cup-profile CRUD commands, and the actual
+`STATE_GRINDING`/motor path end-to-end (the motor/SSR relay itself is
+still unverified on real hardware independent of this change - AC-side
+wiring status unconfirmed, deliberately out of scope here).
+
+**Known pre-existing quirk noticed while decoding a live Status
+notification, not new:** `_status.error_code` is set to `2` on any HX711
+`TIMEOUT`/non-OK read (`GrinderController::readSensors()`) but nothing
+ever clears it back to `0` on a subsequent good read - it's "sticky"
+once any transient HX711 timeout happens (which is routine, see the
+HX711 entry above). Cosmetic today since nothing currently branches on
+a non-grinding-related `error_code`, but worth fixing before the app
+surfaces this field to the user as a real error indicator.
+
+## Android app (Phase B - not started yet)
+
+Plan file (still on disk, worth reading in full before starting Phase B):
+`/Users/a9un9hari/.claude/plans/wobbly-giggling-music.md`. Native Kotlin,
+new `android-app/` directory in this repo, MVP single screen: connect,
+live status, cup profile list (edit/select), target dose input, mode
+toggle, manual Start/Stop/E-stop. This environment can write the Kotlin/
+Gradle project but cannot build an APK or run it - verification loop is
+"write it, Agung builds+runs it in Android Studio, reports back."
+
+## Superseded - kept for history only
+
+The "Known deviations from the original prompt framework" notes that
+used to live here (STOP-button-via-START-press, button-hold emergency
+stop, single-profile-only calibration) no longer apply - buttons/encoder
+are gone entirely as of the BLE pivot above, and cup profiles now
+support up to 4 slots. Not repeating the specifics since they'd only
+confuse a future reader; see the BLE pivot entry above for the current
+design instead.
