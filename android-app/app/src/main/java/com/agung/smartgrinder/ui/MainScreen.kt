@@ -1,5 +1,6 @@
 package com.agung.smartgrinder.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -7,10 +8,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agung.smartgrinder.GrinderViewModel
+import com.agung.smartgrinder.ShotSample
 import com.agung.smartgrinder.ble.*
 
 @Composable
@@ -23,6 +29,7 @@ fun MainScreen(
     val status by viewModel.status.collectAsState()
     val cupProfiles by viewModel.cupProfiles.collectAsState()
     val calibrationStatus by viewModel.calibrationStatus.collectAsState()
+    val shotSamples by viewModel.shotSamples.collectAsState()
 
     LaunchedEffect(connectionState) {
         if (connectionState == ConnectionState.CONNECTED) {
@@ -49,6 +56,11 @@ fun MainScreen(
                 item { TargetWeightRow(status!!.targetWeightG, viewModel::setTargetWeight) }
                 item { ModeRow(status!!.mode, viewModel::setMode) }
                 item { ControlButtonsRow(viewModel::start, viewModel::stop, viewModel::emergencyStop) }
+
+                if (status!!.mode == GrinderMode.ESPRESSO) {
+                    item { HorizontalDivider() }
+                    item { EspressoShotSection(shotSamples) }
+                }
 
                 item { HorizontalDivider() }
                 item { TareRow(viewModel::tare) }
@@ -178,6 +190,78 @@ private fun ControlButtonsRow(onStart: () -> Unit, onStop: () -> Unit, onEStop: 
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
             modifier = Modifier.weight(1f)
         ) { Text("E-Stop") }
+    }
+}
+
+/** Derives a smoothed flow-rate (g/s) series from raw weight samples via finite differences. */
+private fun computeFlowRate(samples: List<ShotSample>, smoothWindow: Int = 3): List<Pair<Float, Float>> {
+    if (samples.size < 2) return emptyList()
+    val raw = (1 until samples.size).map { i ->
+        val dt = samples[i].tSeconds - samples[i - 1].tSeconds
+        val dw = samples[i].weightG - samples[i - 1].weightG
+        samples[i].tSeconds to (if (dt > 0.01f) dw / dt else 0f)
+    }
+    return raw.mapIndexed { i, (t, _) ->
+        val start = (i - smoothWindow + 1).coerceAtLeast(0)
+        t to raw.subList(start, i + 1).map { it.second }.average().toFloat()
+    }
+}
+
+@Composable
+private fun EspressoShotSection(samples: List<ShotSample>) {
+    val weightPoints = remember(samples) { samples.map { it.tSeconds to it.weightG } }
+    val flowPoints = remember(samples) { computeFlowRate(samples) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Shot graph", style = MaterialTheme.typography.titleMedium)
+        TimeSeriesChart("Weight", weightPoints, "g", MaterialTheme.colorScheme.primary)
+        TimeSeriesChart("Flow rate", flowPoints, "g/s", MaterialTheme.colorScheme.tertiary)
+    }
+}
+
+@Composable
+private fun TimeSeriesChart(title: String, points: List<Pair<Float, Float>>, unit: String, lineColor: Color) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            if (points.size < 2) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(140.dp),
+                    contentAlignment = Alignment.Center
+                ) { Text("Waiting for shot to start...", style = MaterialTheme.typography.bodySmall) }
+                return@Column
+            }
+
+            val maxX = points.last().first.coerceAtLeast(1f)
+            val maxY = points.maxOf { it.second }.coerceAtLeast(0.1f)
+            val minY = points.minOf { it.second }.coerceAtMost(0f)
+            val spanY = (maxY - minY).coerceAtLeast(0.1f)
+
+            Canvas(modifier = Modifier.fillMaxWidth().height(140.dp)) {
+                fun mapX(x: Float) = (x / maxX) * size.width
+                fun mapY(y: Float) = size.height - ((y - minY) / spanY) * size.height
+
+                drawLine(
+                    Color.Gray.copy(alpha = 0.3f),
+                    Offset(0f, mapY(0f)),
+                    Offset(size.width, mapY(0f)),
+                    strokeWidth = 1f
+                )
+
+                val path = Path()
+                points.forEachIndexed { i, (x, y) ->
+                    val px = mapX(x)
+                    val py = mapY(y)
+                    if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                }
+                drawPath(path, color = lineColor, style = Stroke(width = 4f))
+            }
+
+            Text(
+                "%.1f%s at %.1fs".format(points.last().second, unit, points.last().first),
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
     }
 }
 

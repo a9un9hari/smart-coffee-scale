@@ -1,6 +1,7 @@
 package com.agung.smartgrinder
 
 import android.app.Application
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.agung.smartgrinder.ble.*
@@ -9,6 +10,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+/** One (elapsed seconds since pull started, weight in grams) sample for the shot graph. */
+data class ShotSample(val tSeconds: Float, val weightG: Float)
+
 class GrinderViewModel(application: Application) : AndroidViewModel(application) {
 
     private val ble = GrinderBleManager(application)
@@ -16,6 +20,32 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
     val connectionState: StateFlow<ConnectionState> = ble.connectionState
     val status: StateFlow<GrinderStatus?> = ble.status
     val calibrationStatus: StateFlow<CalibrationStatus?> = ble.calibrationStatus
+
+    // Espresso shot graph: recorded from PULL_SHOT through SHOT_COMPLETE, reset
+    // when a new pull starts. Sourced entirely from the existing Status
+    // notification stream (~6-7Hz) - no separate firmware protocol needed.
+    private val _shotSamples = MutableStateFlow<List<ShotSample>>(emptyList())
+    val shotSamples: StateFlow<List<ShotSample>> = _shotSamples.asStateFlow()
+    private var shotStartElapsedMs = 0L
+    private var lastState: GrinderState? = null
+
+    init {
+        viewModelScope.launch {
+            ble.status.collect { s ->
+                val state = s?.state ?: return@collect
+                val wasPulling = lastState == GrinderState.PULL_SHOT || lastState == GrinderState.PULLING
+                if (state == GrinderState.PULL_SHOT && !wasPulling) {
+                    shotStartElapsedMs = SystemClock.elapsedRealtime()
+                    _shotSamples.value = emptyList()
+                }
+                if (state == GrinderState.PULL_SHOT || state == GrinderState.PULLING) {
+                    val t = (SystemClock.elapsedRealtime() - shotStartElapsedMs) / 1000f
+                    _shotSamples.value = _shotSamples.value + ShotSample(t, s.weightG)
+                }
+                lastState = state
+            }
+        }
+    }
 
     // Local editable copies of the 4 cup profile slots, filled in via loadCupProfiles().
     private val _cupProfiles = MutableStateFlow<List<CupProfile>>(
