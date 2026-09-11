@@ -40,6 +40,13 @@ private:
     bool _cup_settling = false;
     uint32_t _cup_settle_start_ms = 0;
 
+    // Light exponential smoothing on top of HX711::readWeight()'s own 5-sample
+    // burst average - cuts the residual ADC jitter the app was showing on
+    // every decimal digit. Deliberately light (not a big alpha) so it doesn't
+    // add meaningful lag to the GRINDING stop-at-target check.
+    float _filtered_weight_g = 0.0f;
+    bool _filter_initialized = false;
+
     // In-progress multi-point calibration session (cleared by BLE_OP_CAL_CLEAR,
     // filled by repeated BLE_OP_CAL_ADD_POINT, consumed by BLE_OP_CAL_SAVE).
     static const uint8_t MAX_CAL_POINTS = 8;

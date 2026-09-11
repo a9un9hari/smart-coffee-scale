@@ -55,12 +55,20 @@ void GrinderController::readSensors(uint32_t now) {
     }
     _last_sensor_read_ms = now;
 
-    _status.current_weight_g = _scale.readWeight();
+    float raw_weight = _scale.readWeight();
     if (_scale.getStatus() != HX711_OK) {
         // load cell error is not automatically fatal (transient timeouts happen) -
         // the state machine only escalates it via EVT_ERROR_OCCURRED where relevant
         _status.error_code = 2; // see hx711.h HX711Status for the underlying cause
     }
+
+    if (!_filter_initialized) {
+        _filtered_weight_g = raw_weight;
+        _filter_initialized = true;
+    } else {
+        _filtered_weight_g += WEIGHT_SMOOTHING_ALPHA * (raw_weight - _filtered_weight_g);
+    }
+    _status.current_weight_g = _filtered_weight_g;
 }
 
 void GrinderController::readCupDetect(uint32_t now) {
@@ -165,6 +173,7 @@ void GrinderController::handleTare() {
     _scale.tare();
     _calibration.offset = _scale.getOffset();
     _storage.save(_calibration);
+    _filter_initialized = false; // snap the smoothed reading to the new zero instead of easing into it
 }
 
 long GrinderController::sampleRawAveraged(uint8_t samples) {
@@ -232,6 +241,7 @@ void GrinderController::handleCalSave() {
     _calibration.scale_factor = new_scale_factor;
     _calibration.offset = new_offset;
     _storage.save(_calibration);
+    _filter_initialized = false; // snap to the newly-calibrated reading instead of easing into it
 
     _cal_point_count = 0;
     _ble.notifyCalibrationStatus(0, true, 0.0f, 0.0f);

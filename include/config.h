@@ -33,6 +33,7 @@
 #define HX711_READ_INTERVAL_MS  100       // 10Hz sampling
 #define HX711_AVG_SAMPLES       5         // Moving average window
 #define HX711_TIMEOUT_MS        10        // Bit-read timeout
+#define WEIGHT_SMOOTHING_ALPHA  0.35f     // extra EMA on top of HX711_AVG_SAMPLES; lower = smoother but more lag
 
 // ============================================================
 // TIMING CONSTANTS
