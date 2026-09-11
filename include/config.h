@@ -11,6 +11,10 @@
 // USB-CDC here). GPIO2/8/9 are boot strapping pins - usable post-boot but
 // avoid loading them externally where possible.
 // Usable: 0-10, 18-21 (18/19 reserved for USB as noted above)
+//
+// No physical UI (buttons/encoder/display) - control is entirely over
+// BLE from the companion Android app. Only two physical peripherals now:
+// HX711 load cell and the SSR motor relay.
 // ============================================================
 
 // HX711 Load Cell ADC
@@ -19,30 +23,6 @@
 
 // Motor control (SSR-40 DA relay)
 #define PIN_MOTOR_SSR       2
-
-// Buttons
-#define PIN_BUTTON_START    3
-#define PIN_BUTTON_MODE     4
-
-// Rotary encoder (KY-040)
-#define PIN_ENCODER_CLK     5
-#define PIN_ENCODER_DT      6
-#define PIN_ENCODER_SW      7
-
-// Display: 1.3" ST7789VW 240x240 SPI (module silkscreen: "GMT130-V1.0"),
-// confirmed from the module's printed spec sheet. (The docs/Reference
-// Guide claimed OLED I2C - that was wrong; this is genuinely the ST7789
-// the original prompt framework assumed.)
-// Module exposes 7 pins (VCC/GND/SCK/SDA/RES/DC/BLK) - no CS pin, it's
-// tied to GND internally on the module. RES is driven from a real GPIO
-// (not tied statically to 3.3V) so Adafruit_ST7789 can issue an actual
-// LOW-then-HIGH reset pulse during init() - some clone ST7789 panels
-// don't reliably come up from a software-only reset. BLK stays wired
-// straight to 3.3V (backlight always-on, no GPIO needed for it).
-#define PIN_DISPLAY_SCLK    8
-#define PIN_DISPLAY_MOSI    10
-#define PIN_DISPLAY_DC      21
-#define PIN_DISPLAY_RST     20
 
 // ============================================================
 // SENSOR CONSTANTS
@@ -58,11 +38,11 @@
 // TIMING CONSTANTS
 // ============================================================
 
-#define BUTTON_DEBOUNCE_MS      20
-#define BUTTON_UPDATE_MS        10
 #define STATE_MACHINE_UPDATE_MS 100
 #define MOTOR_MAX_RUNTIME_MS    30000    // 30s safety timeout
 #define ESPRESSO_STABLE_MS      3000     // weight stable = shot done
+#define CUP_DETECT_SETTLE_MS    400      // weight must hold near cup profile this long before auto-start
+#define BLE_NOTIFY_INTERVAL_MS  150      // status notify throttle (~6-7Hz)
 
 // ============================================================
 // SYSTEM STATE MACHINE
@@ -75,8 +55,6 @@ enum SystemMode {
 
 enum SystemState {
     STATE_IDLE,
-    STATE_SELECT_WEIGHT,
-    STATE_UPDATE_WEIGHT,
     STATE_GRINDING,
     STATE_ESPRESSO_IDLE,
     STATE_PULL_SHOT,

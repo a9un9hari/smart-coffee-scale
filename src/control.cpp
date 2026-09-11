@@ -1,16 +1,24 @@
 #include "control.h"
+#include <string.h>
+#include <math.h>
 
 GrinderController::GrinderController()
     : _scale(PIN_HX711_DOUT, PIN_HX711_CLK) {}
 
+static void resetCupProfiles(CalibrationData &cal) {
+    for (uint8_t i = 0; i < CUP_PROFILE_COUNT; i++) {
+        memset(cal.cup_profiles[i].name, 0, sizeof(cal.cup_profiles[i].name));
+        cal.cup_profiles[i].cup_weight_g = -1.0f; // sentinel: no profile configured, never matches a real reading
+        cal.cup_profiles[i].tolerance_g = 0.0f;
+    }
+    cal.active_cup_profile_id = 0;
+}
+
 void GrinderController::begin() {
     _scale.begin();
-    _buttons.begin();
-    _encoder.begin();
-    _encoder.setRange(10, 30); // grind target: 10-30g
     _motor.begin();
-    _display.begin();
     _storage.begin();
+    _ble.begin();
 
     if (_storage.restore(_calibration)) {
         _scale.setCalibrationFactor(_calibration.scale_factor);
@@ -26,13 +34,15 @@ void GrinderController::begin() {
         _calibration.scale_factor = -0.001547f;
         _calibration.target_weight_g = 18.0f;
         _calibration.wear_counter = 0;
+        resetCupProfiles(_calibration);
         _storage.save(_calibration);
     }
+
+    _ble.attachCalibration(&_calibration);
 
     _status.target_weight_g = _calibration.target_weight_g;
     _status.current_weight_g = 0.0f;
     _status.motor_running = false;
-    _encoder.setValue((int)_status.target_weight_g);
 
     _state_machine.init(&_status); // also sets mode=GRINDER, state=IDLE, error_code=0
     _state_machine.attachMotor(&_motor);
@@ -53,49 +63,84 @@ void GrinderController::readSensors(uint32_t now) {
     }
 }
 
-void GrinderController::readButtons(uint32_t now) {
-    if (now - _last_button_update_ms < BUTTON_UPDATE_MS) {
+void GrinderController::readCupDetect(uint32_t now) {
+    if (_status.mode != MODE_GRINDER || _status.state != STATE_IDLE) {
+        _cup_settling = false;
         return;
     }
-    _last_button_update_ms = now;
 
-    _buttons.update();
-
-    if (_buttons.wasPressed(START_BUTTON)) {
-        _state_machine.onEvent(EVT_BUTTON_START_PRESSED);
-    }
-    if (_buttons.wasPressed(MODE_BUTTON)) {
-        _state_machine.onEvent(EVT_BUTTON_MODE_PRESSED);
+    const CupProfile &profile = _calibration.cup_profiles[_calibration.active_cup_profile_id];
+    if (profile.cup_weight_g < 0.0f) {
+        return; // no profile configured for this slot
     }
 
-    // emergency stop: both buttons held together for 2s, from any state
-    static uint32_t both_held_since_ms = 0;
-    if (_buttons.isPressed(START_BUTTON) && _buttons.isPressed(MODE_BUTTON)) {
-        if (both_held_since_ms == 0) {
-            both_held_since_ms = now;
-        } else if (now - both_held_since_ms >= 2000) {
-            _state_machine.onEvent(EVT_EMERGENCY_STOP);
-            both_held_since_ms = 0;
-        }
-    } else {
-        both_held_since_ms = 0;
+    float diff = fabsf(_status.current_weight_g - profile.cup_weight_g);
+    if (diff > profile.tolerance_g) {
+        _cup_settling = false;
+        return;
+    }
+
+    if (!_cup_settling) {
+        _cup_settling = true;
+        _cup_settle_start_ms = now;
+    } else if (now - _cup_settle_start_ms >= CUP_DETECT_SETTLE_MS) {
+        _state_machine.onEvent(EVT_CUP_DETECTED);
+        _cup_settling = false;
     }
 }
 
-void GrinderController::readEncoder() {
-    // Quadrature needs polling every loop iteration, not throttled to an
-    // interval like the other subsystems, or clicks get missed.
-    _encoder.update();
+void GrinderController::processBleCommands() {
+    BleCommand cmd;
+    while (_ble.popCommand(cmd)) {
+        switch (cmd.opcode) {
+            case BLE_OP_SET_TARGET_WEIGHT:
+                _status.target_weight_g = cmd.value_a;
+                break;
 
-    int8_t delta = _encoder.getDelta();
-    if (delta == 0) {
-        return;
-    }
+            case BLE_OP_SET_MODE:
+                _state_machine.onModeCommand((SystemMode)cmd.mode);
+                break;
 
-    SystemState state = _state_machine.getCurrentState();
-    if (state == STATE_SELECT_WEIGHT || state == STATE_UPDATE_WEIGHT) {
-        _status.target_weight_g = (float)_encoder.getValue();
-        _state_machine.onEvent(EVT_ENCODER_CHANGED);
+            case BLE_OP_START:
+                _state_machine.onEvent(EVT_BLE_START);
+                break;
+
+            case BLE_OP_STOP:
+                _state_machine.onEvent(EVT_BLE_STOP);
+                break;
+
+            case BLE_OP_EMERGENCY_STOP:
+                _state_machine.onEvent(EVT_EMERGENCY_STOP);
+                break;
+
+            case BLE_OP_SELECT_CUP_PROFILE:
+                if (cmd.id < CUP_PROFILE_COUNT) {
+                    _calibration.active_cup_profile_id = cmd.id;
+                    _storage.save(_calibration);
+                }
+                break;
+
+            case BLE_OP_SET_CUP_PROFILE_WEIGHT:
+                if (cmd.id < CUP_PROFILE_COUNT) {
+                    _calibration.cup_profiles[cmd.id].cup_weight_g = cmd.value_a;
+                    _calibration.cup_profiles[cmd.id].tolerance_g = cmd.value_b;
+                    _storage.save(_calibration);
+                }
+                break;
+
+            case BLE_OP_SET_CUP_PROFILE_NAME:
+                if (cmd.id < CUP_PROFILE_COUNT) {
+                    strncpy(_calibration.cup_profiles[cmd.id].name, cmd.name,
+                            sizeof(_calibration.cup_profiles[cmd.id].name) - 1);
+                    _calibration.cup_profiles[cmd.id]
+                        .name[sizeof(_calibration.cup_profiles[cmd.id].name) - 1] = '\0';
+                    _storage.save(_calibration);
+                }
+                break;
+
+            default:
+                break;
+        }
     }
 }
 
@@ -110,7 +155,7 @@ void GrinderController::runStateMachine(uint32_t now) {
 
     if (_prev_state == STATE_GRINDING && _status.state == STATE_IDLE && _status.error_code == 0) {
         // grind finished cleanly - bump wear counter and persist the target
-        // weight in case the user dialed in a new one this run
+        // weight in case the app dialed in a new one this run
         _calibration.wear_counter++;
         _calibration.target_weight_g = _status.target_weight_g;
         _storage.save(_calibration);
@@ -122,8 +167,8 @@ void GrinderController::update() {
     uint32_t now = millis();
 
     readSensors(now);
-    readButtons(now);
-    readEncoder();
+    readCupDetect(now);
+    processBleCommands();
     runStateMachine(now);
-    _display.update(_status); // internally rate-limited to ~30Hz
+    _ble.notifyStatus(_status, _calibration.active_cup_profile_id); // internally rate-limited
 }

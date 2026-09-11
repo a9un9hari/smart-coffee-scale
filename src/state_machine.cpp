@@ -53,22 +53,6 @@ void StateMachine::onEvent(StateMachineEvent event) {
         return;
     }
 
-    // MODE button toggles between grinder/espresso, but only from IDLE-ish
-    // states so it can't yank the user out of an active grind/pull.
-    if (event == EVT_BUTTON_MODE_PRESSED) {
-        if (_status->state == STATE_IDLE) {
-            _status->mode = MODE_ESPRESSO;
-            transitionTo(STATE_ESPRESSO_IDLE);
-            return;
-        }
-        if (_status->state == STATE_ESPRESSO_IDLE) {
-            _status->mode = MODE_GRINDER;
-            transitionTo(STATE_IDLE);
-            return;
-        }
-        return; // ignored mid-operation
-    }
-
     if (_status->mode == MODE_GRINDER) {
         handleGrinderEvent(event);
     } else {
@@ -76,36 +60,33 @@ void StateMachine::onEvent(StateMachineEvent event) {
     }
 }
 
+void StateMachine::onModeCommand(SystemMode requested_mode) {
+    if (requested_mode == _status->mode) {
+        return;
+    }
+
+    // only honored from an idle-ish state, can't yank the user out of an
+    // active grind/pull
+    if (_status->state == STATE_IDLE && requested_mode == MODE_ESPRESSO) {
+        _status->mode = MODE_ESPRESSO;
+        transitionTo(STATE_ESPRESSO_IDLE);
+    } else if (_status->state == STATE_ESPRESSO_IDLE && requested_mode == MODE_GRINDER) {
+        _status->mode = MODE_GRINDER;
+        transitionTo(STATE_IDLE);
+    }
+}
+
 void StateMachine::handleGrinderEvent(StateMachineEvent event) {
     switch (_status->state) {
         case STATE_IDLE:
-            if (event == EVT_BUTTON_START_PRESSED) {
-                transitionTo(STATE_SELECT_WEIGHT);
-            }
-            break;
-
-        case STATE_SELECT_WEIGHT:
-            if (event == EVT_ENCODER_CHANGED) {
-                transitionTo(STATE_UPDATE_WEIGHT);
-            } else if (event == EVT_BUTTON_START_PRESSED) {
-                // no encoder change - go straight to grinding with current target
-                transitionTo(STATE_GRINDING);
-            }
-            break;
-
-        case STATE_UPDATE_WEIGHT:
-            if (event == EVT_ENCODER_CHANGED) {
-                // stay here, target_weight_g already updated by caller
-            } else if (event == EVT_BUTTON_START_PRESSED) {
+            if (event == EVT_CUP_DETECTED || event == EVT_BLE_START) {
+                _session_start_weight_g = _status->current_weight_g;
                 transitionTo(STATE_GRINDING);
             }
             break;
 
         case STATE_GRINDING:
-            if (event == EVT_TARGET_REACHED) {
-                transitionTo(STATE_IDLE);
-            } else if (event == EVT_BUTTON_START_PRESSED) {
-                // pressing START again mid-grind = emergency stop
+            if (event == EVT_TARGET_REACHED || event == EVT_BLE_STOP) {
                 transitionTo(STATE_IDLE);
             }
             break;
@@ -118,7 +99,7 @@ void StateMachine::handleGrinderEvent(StateMachineEvent event) {
 void StateMachine::handleEspressoEvent(StateMachineEvent event) {
     switch (_status->state) {
         case STATE_ESPRESSO_IDLE:
-            if (event == EVT_BUTTON_START_PRESSED) {
+            if (event == EVT_BLE_START) {
                 transitionTo(STATE_PULL_SHOT);
             }
             break;
@@ -126,17 +107,19 @@ void StateMachine::handleEspressoEvent(StateMachineEvent event) {
         case STATE_PULL_SHOT:
             if (event == EVT_WEIGHT_CHANGED) {
                 transitionTo(STATE_PULLING);
+            } else if (event == EVT_BLE_STOP) {
+                transitionTo(STATE_ESPRESSO_IDLE);
             }
             break;
 
         case STATE_PULLING:
-            if (event == EVT_SHOT_STABLE) {
-                transitionTo(STATE_SHOT_COMPLETE);
+            if (event == EVT_SHOT_STABLE || event == EVT_BLE_STOP) {
+                transitionTo(event == EVT_SHOT_STABLE ? STATE_SHOT_COMPLETE : STATE_ESPRESSO_IDLE);
             }
             break;
 
         case STATE_SHOT_COMPLETE:
-            if (event == EVT_BUTTON_START_PRESSED) {
+            if (event == EVT_BLE_STOP) {
                 transitionTo(STATE_ESPRESSO_IDLE);
             }
             break;
@@ -160,7 +143,7 @@ void StateMachine::update() {
 
     switch (_status->state) {
         case STATE_GRINDING:
-            if (_status->current_weight_g >= _status->target_weight_g) {
+            if (_status->current_weight_g - _session_start_weight_g >= _status->target_weight_g) {
                 onEvent(EVT_TARGET_REACHED);
             }
             break;
