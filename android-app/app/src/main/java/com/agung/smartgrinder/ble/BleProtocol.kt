@@ -14,6 +14,7 @@ object GrinderBleUuids {
     val STATUS: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0001")
     val COMMAND: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0002")
     val CUP_PROFILE_QUERY: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0003")
+    val CALIBRATION_STATUS: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0004")
 
     // Standard Client Characteristic Configuration Descriptor - used to enable notifications.
     val CLIENT_CHARACTERISTIC_CONFIG: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
@@ -85,6 +86,24 @@ fun decodeCupProfile(bytes: ByteArray): CupProfile? {
     return CupProfile(cupWeight, tolerance, name)
 }
 
+data class CalibrationStatus(
+    val pointCount: Int,
+    val lastSaveOk: Boolean,
+    val lastPointRaw: Float,
+    val lastPointWeightG: Float
+)
+
+/** Parses a 10-byte CalibrationStatus characteristic notification/read. Null if malformed. */
+fun decodeCalibrationStatus(bytes: ByteArray): CalibrationStatus? {
+    if (bytes.size < 10) return null
+    val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+    val pointCount = buf.get().toInt() and 0xFF
+    val lastSaveOk = (buf.get().toInt() and 0xFF) != 0
+    val lastRaw = buf.float
+    val lastWeight = buf.float
+    return CalibrationStatus(pointCount, lastSaveOk, lastRaw, lastWeight)
+}
+
 /** Builds Command characteristic write payloads - every one is <=20 bytes, no MTU negotiation needed. */
 object BleCommand {
     private const val OP_SET_TARGET_WEIGHT: Int = 1
@@ -95,6 +114,10 @@ object BleCommand {
     private const val OP_SELECT_CUP_PROFILE: Int = 6
     private const val OP_SET_CUP_PROFILE_WEIGHT: Int = 7
     private const val OP_SET_CUP_PROFILE_NAME: Int = 8
+    private const val OP_TARE: Int = 9
+    private const val OP_CAL_CLEAR: Int = 10
+    private const val OP_CAL_ADD_POINT: Int = 11
+    private const val OP_CAL_SAVE: Int = 12
 
     fun setTargetWeight(grams: Float): ByteArray =
         ByteBuffer.allocate(5).order(ByteOrder.LITTLE_ENDIAN)
@@ -125,4 +148,12 @@ object BleCommand {
             .put(nameBytes)
             .array()
     }
+
+    fun tare(): ByteArray = byteArrayOf(OP_TARE.toByte())
+    fun calClear(): ByteArray = byteArrayOf(OP_CAL_CLEAR.toByte())
+    fun calSave(): ByteArray = byteArrayOf(OP_CAL_SAVE.toByte())
+
+    fun calAddPoint(knownWeightG: Float): ByteArray =
+        ByteBuffer.allocate(5).order(ByteOrder.LITTLE_ENDIAN)
+            .put(OP_CAL_ADD_POINT.toByte()).putFloat(knownWeightG).array()
 }

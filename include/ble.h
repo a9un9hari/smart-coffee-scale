@@ -18,6 +18,10 @@ enum BleOpcode : uint8_t {
     BLE_OP_SELECT_CUP_PROFILE    = 6, // + uint8 id
     BLE_OP_SET_CUP_PROFILE_WEIGHT = 7, // + uint8 id, float cup_weight_g, float tolerance_g
     BLE_OP_SET_CUP_PROFILE_NAME  = 8, // + uint8 id, char name[<=11] (rest of payload)
+    BLE_OP_TARE                  = 9,  // no payload - zero the scale at its current (empty) load
+    BLE_OP_CAL_CLEAR             = 10, // no payload - discard any in-progress calibration points
+    BLE_OP_CAL_ADD_POINT         = 11, // + float known_weight_g - capture current raw ADC paired with this weight
+    BLE_OP_CAL_SAVE              = 12, // no payload - least-squares fit over captured points, apply + persist
 };
 
 // Parsed form of a Command characteristic write, handed to
@@ -45,6 +49,10 @@ public:
 
     void notifyStatus(const SystemStatus &status, uint8_t active_cup_profile_id); // internally rate-limited
 
+    // point_count/last_point_raw/last_point_weight_g reflect the in-progress
+    // calibration session; last_save_ok is only meaningful right after a SAVE.
+    void notifyCalibrationStatus(uint8_t point_count, bool last_save_ok, float last_point_raw, float last_point_weight_g);
+
     // Called by the CupProfileQuery characteristic's write callback to
     // record which profile id a subsequent read should serve.
     void setQueriedProfileId(uint8_t id) { _queried_profile_id = id; }
@@ -60,6 +68,7 @@ private:
     uint32_t _last_notify_ms = 0;
 
     NimBLECharacteristic *_status_char = nullptr;
+    NimBLECharacteristic *_calibration_status_char = nullptr;
 };
 
 #endif // BLE_H

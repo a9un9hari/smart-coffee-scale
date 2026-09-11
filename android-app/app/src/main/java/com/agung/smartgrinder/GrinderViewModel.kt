@@ -15,6 +15,7 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
 
     val connectionState: StateFlow<ConnectionState> = ble.connectionState
     val status: StateFlow<GrinderStatus?> = ble.status
+    val calibrationStatus: StateFlow<CalibrationStatus?> = ble.calibrationStatus
 
     // Local editable copies of the 4 cup profile slots, filled in via loadCupProfiles().
     private val _cupProfiles = MutableStateFlow<List<CupProfile>>(
@@ -32,6 +33,11 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
     fun emergencyStop() = ble.sendCommand(BleCommand.emergencyStop())
 
     fun selectCupProfile(id: Int) = ble.sendCommand(BleCommand.selectCupProfile(id))
+
+    fun tare() = ble.tare()
+    fun calClear() = ble.calClear()
+    fun calAddPoint(knownWeightG: Float) = ble.calAddPoint(knownWeightG)
+    fun calSave() = ble.calSave()
 
     fun saveCupProfile(id: Int, name: String, cupWeightG: Float, toleranceG: Float) {
         ble.sendCommand(BleCommand.setCupProfileName(id, name))

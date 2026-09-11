@@ -39,12 +39,16 @@ class GrinderBleManager(private val context: Context) {
     private var statusChar: BluetoothGattCharacteristic? = null
     private var commandChar: BluetoothGattCharacteristic? = null
     private var cupProfileChar: BluetoothGattCharacteristic? = null
+    private var calibrationStatusChar: BluetoothGattCharacteristic? = null
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     private val _status = MutableStateFlow<GrinderStatus?>(null)
     val status: StateFlow<GrinderStatus?> = _status.asStateFlow()
+
+    private val _calibrationStatus = MutableStateFlow<CalibrationStatus?>(null)
+    val calibrationStatus: StateFlow<CalibrationStatus?> = _calibrationStatus.asStateFlow()
 
     private val opQueue = ArrayDeque<() -> Unit>()
     private var opInFlight = false
@@ -112,35 +116,44 @@ class GrinderBleManager(private val context: Context) {
             statusChar = service?.getCharacteristic(GrinderBleUuids.STATUS)
             commandChar = service?.getCharacteristic(GrinderBleUuids.COMMAND)
             cupProfileChar = service?.getCharacteristic(GrinderBleUuids.CUP_PROFILE_QUERY)
+            calibrationStatusChar = service?.getCharacteristic(GrinderBleUuids.CALIBRATION_STATUS)
 
-            statusChar?.let { sc ->
-                g.setCharacteristicNotification(sc, true)
-                val cccd = sc.getDescriptor(GrinderBleUuids.CLIENT_CHARACTERISTIC_CONFIG)
-                if (cccd != null) {
-                    if (Build.VERSION.SDK_INT >= 33) {
-                        g.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                        @Suppress("DEPRECATION")
-                        g.writeDescriptor(cccd)
-                    }
-                }
-            }
+            // Both descriptor writes go through the same queue as everything
+            // else - issuing them back-to-back without waiting for each
+            // callback would silently drop the second one.
+            statusChar?.let { enqueue { enableNotify(g, it) } }
+            calibrationStatusChar?.let { enqueue { enableNotify(g, it) } }
+
             _connectionState.value = ConnectionState.CONNECTED
         }
 
-        override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
-            if (characteristic.uuid == GrinderBleUuids.STATUS) {
-                decodeStatus(value)?.let { _status.value = it }
+        @SuppressLint("MissingPermission")
+        private fun enableNotify(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
+            g.setCharacteristicNotification(ch, true)
+            val cccd = ch.getDescriptor(GrinderBleUuids.CLIENT_CHARACTERISTIC_CONFIG)
+            if (cccd == null) {
+                completeOp() // nothing to write, still need to release the queue
+                return
             }
+            if (Build.VERSION.SDK_INT >= 33) {
+                g.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            } else {
+                @Suppress("DEPRECATION")
+                cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                @Suppress("DEPRECATION")
+                g.writeDescriptor(cccd)
+            }
+        }
+
+        override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
+            handleNotification(characteristic.uuid, value)
         }
 
         @Deprecated("Deprecated in Java, kept for API < 33")
         override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            if (Build.VERSION.SDK_INT < 33 && characteristic.uuid == GrinderBleUuids.STATUS) {
+            if (Build.VERSION.SDK_INT < 33) {
                 @Suppress("DEPRECATION")
-                characteristic.value?.let { decodeStatus(it)?.let { s -> _status.value = s } }
+                characteristic.value?.let { handleNotification(characteristic.uuid, it) }
             }
         }
 
@@ -173,6 +186,18 @@ class GrinderBleManager(private val context: Context) {
             pendingCupProfileResult = null
         }
     }
+
+    private fun handleNotification(uuid: java.util.UUID, value: ByteArray) {
+        when (uuid) {
+            GrinderBleUuids.STATUS -> decodeStatus(value)?.let { _status.value = it }
+            GrinderBleUuids.CALIBRATION_STATUS -> decodeCalibrationStatus(value)?.let { _calibrationStatus.value = it }
+        }
+    }
+
+    fun tare() = sendCommand(BleCommand.tare())
+    fun calClear() = sendCommand(BleCommand.calClear())
+    fun calAddPoint(knownWeightG: Float) = sendCommand(BleCommand.calAddPoint(knownWeightG))
+    fun calSave() = sendCommand(BleCommand.calSave())
 
     @SuppressLint("MissingPermission")
     fun sendCommand(bytes: ByteArray) {

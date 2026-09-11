@@ -40,10 +40,22 @@ private:
     bool _cup_settling = false;
     uint32_t _cup_settle_start_ms = 0;
 
+    // In-progress multi-point calibration session (cleared by BLE_OP_CAL_CLEAR,
+    // filled by repeated BLE_OP_CAL_ADD_POINT, consumed by BLE_OP_CAL_SAVE).
+    static const uint8_t MAX_CAL_POINTS = 8;
+    struct CalPoint { float raw; float weight_g; };
+    CalPoint _cal_points[MAX_CAL_POINTS];
+    uint8_t _cal_point_count = 0;
+
     void readSensors(uint32_t now);
     void readCupDetect(uint32_t now);
     void processBleCommands();
     void runStateMachine(uint32_t now);
+
+    long sampleRawAveraged(uint8_t samples);
+    void handleTare();
+    void handleCalAddPoint(float known_weight_g);
+    void handleCalSave();
 };
 
 #endif // CONTROL_H

@@ -138,10 +138,103 @@ void GrinderController::processBleCommands() {
                 }
                 break;
 
+            case BLE_OP_TARE:
+                handleTare();
+                break;
+
+            case BLE_OP_CAL_CLEAR:
+                _cal_point_count = 0;
+                _ble.notifyCalibrationStatus(0, false, 0.0f, 0.0f);
+                break;
+
+            case BLE_OP_CAL_ADD_POINT:
+                handleCalAddPoint(cmd.value_a);
+                break;
+
+            case BLE_OP_CAL_SAVE:
+                handleCalSave();
+                break;
+
             default:
                 break;
         }
     }
+}
+
+void GrinderController::handleTare() {
+    _scale.tare();
+    _calibration.offset = _scale.getOffset();
+    _storage.save(_calibration);
+}
+
+long GrinderController::sampleRawAveraged(uint8_t samples) {
+    long sum = 0;
+    uint8_t got = 0;
+    for (uint8_t i = 0; i < samples; i++) {
+        long r = _scale.readRaw();
+        if (_scale.getStatus() == HX711_OK) {
+            sum += r;
+            got++;
+        }
+    }
+    return (got > 0) ? (sum / got) : 0;
+}
+
+void GrinderController::handleCalAddPoint(float known_weight_g) {
+    float raw = 0.0f;
+    if (_cal_point_count < MAX_CAL_POINTS) {
+        raw = (float)sampleRawAveraged(10);
+        _cal_points[_cal_point_count] = {raw, known_weight_g};
+        _cal_point_count++;
+    }
+    _ble.notifyCalibrationStatus(_cal_point_count, false, raw, known_weight_g);
+}
+
+void GrinderController::handleCalSave() {
+    if (_cal_point_count < 2) {
+        _ble.notifyCalibrationStatus(_cal_point_count, false, 0.0f, 0.0f);
+        return;
+    }
+
+    // Least-squares line fit: weight_g = slope*raw + intercept, over the
+    // captured (raw, weight_g) points. scale_factor = slope; offset is the
+    // raw value where the fitted line crosses weight=0 (-intercept/slope) -
+    // matches HX711::readWeight()'s (raw - offset) * scale_factor formula.
+    double sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
+    for (uint8_t i = 0; i < _cal_point_count; i++) {
+        double x = _cal_points[i].raw;
+        double y = _cal_points[i].weight_g;
+        sum_x += x;
+        sum_y += y;
+        sum_xy += x * y;
+        sum_xx += x * x;
+    }
+
+    double n = _cal_point_count;
+    double denom = n * sum_xx - sum_x * sum_x;
+    if (fabs(denom) < 1e-9) {
+        _ble.notifyCalibrationStatus(_cal_point_count, false, 0.0f, 0.0f); // degenerate: all points at the same raw value
+        return;
+    }
+
+    double slope = (n * sum_xy - sum_x * sum_y) / denom;
+    double intercept = (sum_y - slope * sum_x) / n;
+    if (fabs(slope) < 1e-12) {
+        _ble.notifyCalibrationStatus(_cal_point_count, false, 0.0f, 0.0f);
+        return;
+    }
+
+    float new_scale_factor = (float)slope;
+    long new_offset = lround(-intercept / slope);
+
+    _scale.setCalibrationFactor(new_scale_factor);
+    _scale.setOffset(new_offset);
+    _calibration.scale_factor = new_scale_factor;
+    _calibration.offset = new_offset;
+    _storage.save(_calibration);
+
+    _cal_point_count = 0;
+    _ble.notifyCalibrationStatus(0, true, 0.0f, 0.0f);
 }
 
 void GrinderController::runStateMachine(uint32_t now) {

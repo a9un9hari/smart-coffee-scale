@@ -22,6 +22,7 @@ fun MainScreen(
     val connectionState by viewModel.connectionState.collectAsState()
     val status by viewModel.status.collectAsState()
     val cupProfiles by viewModel.cupProfiles.collectAsState()
+    val calibrationStatus by viewModel.calibrationStatus.collectAsState()
 
     LaunchedEffect(connectionState) {
         if (connectionState == ConnectionState.CONNECTED) {
@@ -48,6 +49,23 @@ fun MainScreen(
                 item { TargetWeightRow(status!!.targetWeightG, viewModel::setTargetWeight) }
                 item { ModeRow(status!!.mode, viewModel::setMode) }
                 item { ControlButtonsRow(viewModel::start, viewModel::stop, viewModel::emergencyStop) }
+
+                item { HorizontalDivider() }
+                item { TareRow(viewModel::tare) }
+                item {
+                    CalibrationSection(
+                        pointCount = calibrationStatus?.pointCount ?: 0,
+                        lastPointRaw = calibrationStatus?.lastPointRaw,
+                        lastPointWeightG = calibrationStatus?.lastPointWeightG,
+                        lastSaveOk = calibrationStatus?.lastSaveOk,
+                        onAddPoint = viewModel::calAddPoint,
+                        onClear = viewModel::calClear,
+                        onSave = viewModel::calSave
+                    )
+                }
+                item { CornerCheckSection(currentWeightG = status!!.weightG) }
+
+                item { HorizontalDivider() }
                 item {
                     Text("Dosing cups", style = MaterialTheme.typography.titleMedium)
                 }
@@ -160,6 +178,113 @@ private fun ControlButtonsRow(onStart: () -> Unit, onStop: () -> Unit, onEStop: 
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
             modifier = Modifier.weight(1f)
         ) { Text("E-Stop") }
+    }
+}
+
+@Composable
+private fun TareRow(onTare: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+        Text("Empty the scale, then zero it.", style = MaterialTheme.typography.bodyMedium)
+        Button(onClick = onTare) { Text("Tare") }
+    }
+}
+
+/**
+ * Multi-point calibration: place a known weight, tell it what that weight is,
+ * capture; repeat for a few different weights (e.g. 0g via Tare, 50g, 100g,
+ * 200g); Save fits a line through all captured points. More points and a
+ * wider weight spread = better accuracy across the whole working range.
+ */
+@Composable
+private fun CalibrationSection(
+    pointCount: Int,
+    lastPointRaw: Float?,
+    lastPointWeightG: Float?,
+    lastSaveOk: Boolean?,
+    onAddPoint: (Float) -> Unit,
+    onClear: () -> Unit,
+    onSave: () -> Unit
+) {
+    var knownWeight by remember { mutableStateOf("") }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Calibration", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Place a known weight on the scale, enter its actual weight below, and capture. Repeat with a few different weights (including empty = 0g), then Save.",
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = knownWeight,
+                    onValueChange = { knownWeight = it },
+                    label = { Text("Known weight on scale now (g)") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = { knownWeight.toFloatOrNull()?.let(onAddPoint) }) { Text("Capture") }
+            }
+
+            Text("Points captured: $pointCount", style = MaterialTheme.typography.bodyMedium)
+            if (lastPointRaw != null && lastPointWeightG != null) {
+                Text(
+                    "Last: raw=%.0f at %.1fg".format(lastPointRaw, lastPointWeightG),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (lastSaveOk != null) {
+                Text(
+                    if (lastSaveOk) "Calibration saved" else "Save failed - need at least 2 points at different weights",
+                    color = if (lastSaveOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onClear) { Text("Clear points") }
+                Button(onClick = onSave, enabled = pointCount >= 2) { Text("Save calibration") }
+            }
+        }
+    }
+}
+
+/**
+ * Diagnostic only, not calibration: capture the same known weight at the
+ * center and at each corner of the platform. Large differences between
+ * positions point at a mechanical mounting problem (uneven feet, platform
+ * not resting squarely on the load cell) rather than something a software
+ * calibration number can fix.
+ */
+@Composable
+private fun CornerCheckSection(currentWeightG: Float) {
+    val positions = listOf("Center", "Corner 1", "Corner 2", "Corner 3", "Corner 4")
+    val captured = remember { mutableStateMapOf<String, Float>() }
+    val centerValue = captured["Center"]
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Corner consistency check", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Diagnostic only - doesn't change calibration. Put the same weight at the center, capture, then move it to each corner and capture again. Corners should read close to the center value.",
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            positions.forEach { pos ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text(pos, modifier = Modifier.weight(1f))
+                    val value = captured[pos]
+                    val deltaText = if (value != null && centerValue != null && pos != "Center") {
+                        " (%+.1fg)".format(value - centerValue)
+                    } else ""
+                    Text(
+                        text = (value?.let { "%.1fg".format(it) } ?: "-") + deltaText,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                    TextButton(onClick = { captured[pos] = currentWeightG }) { Text("Capture") }
+                }
+            }
+        }
     }
 }
 

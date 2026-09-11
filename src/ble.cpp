@@ -5,6 +5,7 @@
 #define STATUS_CHAR_UUID         "c4a10000-1000-4a4a-8a1a-2f5e9b6d0001"
 #define COMMAND_CHAR_UUID        "c4a10000-1000-4a4a-8a1a-2f5e9b6d0002"
 #define CUP_PROFILE_CHAR_UUID    "c4a10000-1000-4a4a-8a1a-2f5e9b6d0003"
+#define CALIBRATION_STATUS_CHAR_UUID "c4a10000-1000-4a4a-8a1a-2f5e9b6d0004"
 
 #pragma pack(push, 1)
 struct BleStatusWire {
@@ -20,6 +21,13 @@ struct BleCupProfileWire {
     float cup_weight_g;
     float tolerance_g;
     char name[12]; // null-terminated within this fixed span
+};
+
+struct BleCalibrationStatusWire {
+    uint8_t point_count;
+    uint8_t last_save_ok; // 0/1, only meaningful right after a SAVE
+    float last_point_raw;
+    float last_point_weight_g;
 };
 #pragma pack(pop)
 
@@ -46,6 +54,12 @@ public:
             case BLE_OP_START:
             case BLE_OP_STOP:
             case BLE_OP_EMERGENCY_STOP:
+            case BLE_OP_TARE:
+            case BLE_OP_CAL_CLEAR:
+            case BLE_OP_CAL_SAVE:
+                break;
+            case BLE_OP_CAL_ADD_POINT:
+                if (raw.size() >= 5) memcpy(&cmd.value_a, raw.data() + 1, 4);
                 break;
             case BLE_OP_SELECT_CUP_PROFILE:
                 if (raw.size() >= 2) cmd.id = (uint8_t)raw[1];
@@ -142,6 +156,10 @@ void BleServer::begin() {
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
     cup_profile_char->setCallbacks(new CupProfileQueryCallbacks(this));
 
+    _calibration_status_char = service->createCharacteristic(
+        CALIBRATION_STATUS_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+
     service->start();
 
     NimBLEAdvertising *advertising = NimBLEDevice::getAdvertising();
@@ -177,4 +195,19 @@ void BleServer::notifyStatus(const SystemStatus &status, uint8_t active_cup_prof
 
     _status_char->setValue((uint8_t *)&wire, sizeof(wire));
     _status_char->notify();
+}
+
+void BleServer::notifyCalibrationStatus(uint8_t point_count, bool last_save_ok, float last_point_raw, float last_point_weight_g) {
+    if (_calibration_status_char == nullptr) {
+        return;
+    }
+
+    BleCalibrationStatusWire wire;
+    wire.point_count = point_count;
+    wire.last_save_ok = last_save_ok ? 1 : 0;
+    wire.last_point_raw = last_point_raw;
+    wire.last_point_weight_g = last_point_weight_g;
+
+    _calibration_status_char->setValue((uint8_t *)&wire, sizeof(wire));
+    _calibration_status_char->notify();
 }
