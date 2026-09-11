@@ -2,8 +2,15 @@
 #define CONFIG_H
 
 // ============================================================
-// PIN DEFINITIONS - ESP32-C3 Super Mini
-// (Available GPIO: 0-10, 13-15, 21)
+// PIN DEFINITIONS - ESP32-C3 Super Mini (QFN32, embedded flash)
+//
+// GPIO12-17 are wired internally to the embedded flash chip on this
+// package - do NOT use them as GPIO, doing so corrupts flash access and
+// crashes the chip (TG1WDT_SYS_RST bootloop, confirmed on hardware).
+// GPIO18/19 are the native USB D-/D+ lines (in use since Serial runs over
+// USB-CDC here). GPIO2/8/9 are boot strapping pins - usable post-boot but
+// avoid loading them externally where possible.
+// Usable: 0-10, 18-21 (18/19 reserved for USB as noted above)
 // ============================================================
 
 // HX711 Load Cell ADC
@@ -23,9 +30,11 @@
 #define PIN_ENCODER_SW      7
 
 // Display (ST7789 SPI) - Phase 2
-#define PIN_DISPLAY_SCLK    14
-#define PIN_DISPLAY_MOSI    13
-#define PIN_DISPLAY_CS      15
+// SCLK on GPIO8 (strapping pin, but nothing else free) - if the board ever
+// fails to boot with the display attached, move SCLK off GPIO8 first.
+#define PIN_DISPLAY_SCLK    8
+#define PIN_DISPLAY_MOSI    10
+#define PIN_DISPLAY_CS      20
 #define PIN_DISPLAY_DC      21
 
 // ============================================================
