@@ -25,45 +25,51 @@ static const char *stateName(SystemState state) {
 }
 
 void Display::begin() {
-    _tft.init();
+    _tft.init(240, 240);
     _tft.setRotation(0);
-    _tft.fillScreen(TFT_BLACK);
+    _tft.fillScreen(ST77XX_BLACK);
     _last_refresh_ms = 0;
 }
 
+void Display::printCentered(const char *text, int16_t y, uint8_t size, uint16_t color) {
+    _tft.setTextSize(size);
+    _tft.setTextColor(color);
+
+    int16_t x1, y1;
+    uint16_t w, h;
+    _tft.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+
+    _tft.setCursor((240 - (int16_t)w) / 2, y);
+    _tft.print(text);
+}
+
 void Display::drawWeight(float weight_g) {
-    _tft.fillRect(0, 0, 240, 100, TFT_BLACK);
-    _tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    _tft.setTextDatum(MC_DATUM);
-    _tft.setTextSize(1);
-    _tft.drawFloat(weight_g, 1, 120, 50, 6); // font 6: large digits
+    _tft.fillRect(0, 0, 240, 100, ST77XX_BLACK);
+
+    char buf[12];
+    snprintf(buf, sizeof(buf), "%.1fg", weight_g);
+    printCentered(buf, 35, 4, ST77XX_WHITE);
 }
 
 void Display::drawMenu(SystemMode mode, float target_weight_g) {
-    _tft.fillRect(0, 100, 240, 60, TFT_BLACK);
-    _tft.setTextColor(TFT_CYAN, TFT_BLACK);
-    _tft.setTextDatum(MC_DATUM);
-    _tft.drawString(modeName(mode), 120, 118, 4);
+    _tft.fillRect(0, 100, 240, 60, ST77XX_BLACK);
+    printCentered(modeName(mode), 108, 2, ST77XX_CYAN);
 
     char buf[24];
     snprintf(buf, sizeof(buf), "target: %.1fg", target_weight_g);
-    _tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    _tft.drawString(buf, 120, 146, 2);
+    printCentered(buf, 138, 1, ST77XX_WHITE);
 }
 
 void Display::drawStatus(SystemState state, uint8_t error_code) {
-    _tft.fillRect(0, 160, 240, 80, TFT_BLACK);
-    _tft.setTextDatum(MC_DATUM);
+    _tft.fillRect(0, 160, 240, 80, ST77XX_BLACK);
 
-    uint16_t color = (state == STATE_ERROR) ? TFT_RED : TFT_GREEN;
-    _tft.setTextColor(color, TFT_BLACK);
-    _tft.drawString(stateName(state), 120, 190, 4);
+    uint16_t color = (state == STATE_ERROR) ? ST77XX_RED : ST77XX_GREEN;
+    printCentered(stateName(state), 175, 2, color);
 
     if (error_code != 0) {
         char buf[24];
         snprintf(buf, sizeof(buf), "err code: %d", error_code);
-        _tft.setTextColor(TFT_RED, TFT_BLACK);
-        _tft.drawString(buf, 120, 220, 2);
+        printCentered(buf, 210, 1, ST77XX_RED);
     }
 }
 

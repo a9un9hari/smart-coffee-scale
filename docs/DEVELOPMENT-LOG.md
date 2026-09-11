@@ -180,6 +180,63 @@ notes below.
 
 ---
 
+## 2026-09-11: Display module concluded to be DOA after exhaustive testing
+
+Physically wired the confirmed-correct ST7789VW panel (all 7 pins: VCC,
+GND, SCK, SDA, DC, RES, BLK - final pin map at the bottom of this entry)
+and it never showed any content - screen stayed solid black through every
+test:
+
+1. TFT_eSPI/ST7789 (fillScreen(RED)) - black.
+2. Fixed a real bug along the way: `TFT_CS=-1` in build_flags is wrong for
+   TFT_eSPI - the "-1 means unused" convention applies to `TFT_RST`, not
+   `TFT_CS`; setting `TFT_CS=-1` makes the library's CS_L/CS_H bit-shift
+   macros compute garbage. Correct fix is to not define `TFT_CS` at all
+   when a module has no CS pin. Didn't fix the black screen, but is a
+   real, worth-keeping correction.
+3. Switched to Adafruit_ST7789 (`Adafruit ST7735 and ST7789 Library`) -
+   built on the portable Arduino SPI class rather than TFT_eSPI's raw
+   register pokes, to rule out another ESP32-C3-specific TFT_eSPI bug.
+   Still black.
+4. Moved RES from a static 3.3V tie to a real GPIO (GPIO20, freed up by
+   the TFT_CS fix) so the library could issue an actual LOW-then-HIGH
+   reset pulse during `init()`, in case a static tied-high RES wasn't
+   sufficient for this particular clone controller. Still black.
+5. Wrote a bare-minimum sketch with zero application code - just
+   `Adafruit_ST7789` + `tft.init(240,240)` + a color-cycling `fillScreen()`
+   loop (RED/GREEN/BLUE/WHITE every 2s) - to rule out any interference
+   from `GrinderController`'s init ordering. Still black, no color change
+   ever observed.
+
+Wiring itself was verified three independent ways over the course of this:
+voltage checks (VCC/GND/RES/BLK all read correct 3.3V), a GPIO toggle test
+(SCK/SDA/DC each individually commanded HIGH/LOW and confirmed changing at
+the display end with a multimeter), and finally a continuity/beep test
+tracing every signal pin (SDA-GPIO10, SCK-GPIO8, DC-GPIO21, RES-GPIO20)
+end to end with no swaps found. A photo also confirmed the module
+(silkscreen "GMT130-V1.0, IPS 240*240") and its pin labels match what the
+code expects.
+
+**Conclusion: the display module itself is very likely defective (DOA).**
+Every other explanation - wrong pins, wrong library, wrong reset handling,
+wrong wiring, a fault in our own application code - has been ruled out
+through direct, repeatable hardware testing. No spare module was available
+to swap-test and get 100% certainty, so this remains "very likely" rather
+than absolutely proven, but it's the only remaining explanation consistent
+with all the evidence. Next step: seller warranty claim (module spec sheet
+states it's covered as long as it isn't modified - wiring jumper wires
+into the header's intended holes should count as normal use, though that's
+ultimately the seller's call).
+
+Final pin map (kept in the code, ready for a replacement module):
+SCLK=GPIO8, MOSI(SDA)=GPIO10, DC=GPIO21, RST=GPIO20, CS=none (module has
+no CS pin), BLK wired straight to 3.3V. Display driver: `Adafruit_ST7789`
++ `Adafruit_GFX` (kept over TFT_eSPI even though this didn't fix the DOA
+module, since it's the more portable/reliable choice for ESP32-C3 either
+way and has none of TFT_eSPI's register-hack fragility).
+
+---
+
 ## Known deviations from the original prompt framework
 
 Kept here so they don't get "fixed" back to the letter of the doc by

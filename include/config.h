@@ -29,17 +29,20 @@
 #define PIN_ENCODER_DT      6
 #define PIN_ENCODER_SW      7
 
-// Display: 1.3" ST7789VW 240x240 SPI, confirmed from the module's printed
-// spec sheet. (The docs/Reference Guide claimed OLED I2C - that was wrong;
-// this is genuinely the ST7789 the original prompt framework assumed.)
-// Module exposes 7 pins (VCC/GND/SCK/SDA/RES/DC/BLK) - no CS pin, it's tied
-// to GND internally, hence TFT_CS=-1 in platformio.ini. RES and BLK are
-// wired straight to 3.3V (no GPIO needed) - TFT_RST=-1 tells TFT_eSPI to
-// skip hardware reset and use a software reset command instead, and
-// backlight just stays always-on.
+// Display: 1.3" ST7789VW 240x240 SPI (module silkscreen: "GMT130-V1.0"),
+// confirmed from the module's printed spec sheet. (The docs/Reference
+// Guide claimed OLED I2C - that was wrong; this is genuinely the ST7789
+// the original prompt framework assumed.)
+// Module exposes 7 pins (VCC/GND/SCK/SDA/RES/DC/BLK) - no CS pin, it's
+// tied to GND internally on the module. RES is driven from a real GPIO
+// (not tied statically to 3.3V) so Adafruit_ST7789 can issue an actual
+// LOW-then-HIGH reset pulse during init() - some clone ST7789 panels
+// don't reliably come up from a software-only reset. BLK stays wired
+// straight to 3.3V (backlight always-on, no GPIO needed for it).
 #define PIN_DISPLAY_SCLK    8
 #define PIN_DISPLAY_MOSI    10
 #define PIN_DISPLAY_DC      21
+#define PIN_DISPLAY_RST     20
 
 // ============================================================
 // SENSOR CONSTANTS
