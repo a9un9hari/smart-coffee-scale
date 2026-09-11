@@ -22,6 +22,9 @@ public:
     void tare();                                // zero the scale (sets offset from current reading)
     void setCalibrationFactor(float grams_per_count);
 
+    long getOffset() const { return _offset; }         // for persisting calibration
+    void setOffset(long offset) { _offset = offset; }  // for restoring calibration
+
     HX711Status getStatus() const { return _status; }
 
 private:

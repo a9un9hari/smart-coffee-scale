@@ -5,19 +5,35 @@ GrinderController::GrinderController()
 
 void GrinderController::begin() {
     _scale.begin();
-    _scale.setCalibrationFactor(0.01f); // placeholder: grams per raw count, calibrate later
-    _scale.tare();
-
     _buttons.begin();
+    _encoder.begin();
+    _encoder.setRange(10, 30); // grind target: 10-30g
     _motor.begin();
-    // TODO: load _calibration from EEPROM (overrides tare/calibration factor above)
+    _display.begin();
+    _storage.begin();
 
-    _status.target_weight_g = 18.0f;
+    if (_storage.restore(_calibration)) {
+        _scale.setCalibrationFactor(_calibration.scale_factor);
+        _scale.setOffset(_calibration.offset);
+    } else {
+        // first boot / corrupt flash: fall back to a physical tare + factory scale
+        _scale.setCalibrationFactor(0.01f); // placeholder, recalibrate with a known weight
+        _scale.tare();
+        _calibration.offset = _scale.getOffset();
+        _calibration.scale_factor = 0.01f;
+        _calibration.target_weight_g = 18.0f;
+        _calibration.wear_counter = 0;
+        _storage.save(_calibration);
+    }
+
+    _status.target_weight_g = _calibration.target_weight_g;
     _status.current_weight_g = 0.0f;
     _status.motor_running = false;
+    _encoder.setValue((int)_status.target_weight_g);
 
     _state_machine.init(&_status); // also sets mode=GRINDER, state=IDLE, error_code=0
     _state_machine.attachMotor(&_motor);
+    _prev_state = _status.state;
 }
 
 void GrinderController::readSensors(uint32_t now) {
@@ -63,6 +79,23 @@ void GrinderController::readButtons(uint32_t now) {
     }
 }
 
+void GrinderController::readEncoder() {
+    // Quadrature needs polling every loop iteration, not throttled to an
+    // interval like the other subsystems, or clicks get missed.
+    _encoder.update();
+
+    int8_t delta = _encoder.getDelta();
+    if (delta == 0) {
+        return;
+    }
+
+    SystemState state = _state_machine.getCurrentState();
+    if (state == STATE_SELECT_WEIGHT || state == STATE_UPDATE_WEIGHT) {
+        _status.target_weight_g = (float)_encoder.getValue();
+        _state_machine.onEvent(EVT_ENCODER_CHANGED);
+    }
+}
+
 void GrinderController::runStateMachine(uint32_t now) {
     if (now - _last_state_update_ms < STATE_MACHINE_UPDATE_MS) {
         return;
@@ -71,6 +104,15 @@ void GrinderController::runStateMachine(uint32_t now) {
 
     _state_machine.update();
     _motor.update();
+
+    if (_prev_state == STATE_GRINDING && _status.state == STATE_IDLE && _status.error_code == 0) {
+        // grind finished cleanly - bump wear counter and persist the target
+        // weight in case the user dialed in a new one this run
+        _calibration.wear_counter++;
+        _calibration.target_weight_g = _status.target_weight_g;
+        _storage.save(_calibration);
+    }
+    _prev_state = _status.state;
 }
 
 void GrinderController::update() {
@@ -78,5 +120,7 @@ void GrinderController::update() {
 
     readSensors(now);
     readButtons(now);
+    readEncoder();
     runStateMachine(now);
+    _display.update(_status); // internally rate-limited to ~30Hz
 }

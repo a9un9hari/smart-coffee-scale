@@ -35,8 +35,9 @@ struct SystemStatus {
 struct CalibrationData {
     long offset;             // Raw ADC reading at zero load
     float scale_factor;      // grams per ADC count
+    float target_weight_g;   // last-used grind profile (single profile, MVP)
     uint32_t wear_counter;   // grinder maintenance tracking
-    uint16_t checksum;       // simple CRC for validity check
+    uint16_t checksum;       // CRC16 for validity check - must stay last
 };
 
 #endif // DATA_TYPES_H
