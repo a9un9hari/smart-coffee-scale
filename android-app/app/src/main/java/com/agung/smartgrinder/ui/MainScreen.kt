@@ -13,6 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -202,8 +204,23 @@ private fun ControlButtonsRow(onStart: () -> Unit, onStop: () -> Unit, onEStop: 
     }
 }
 
+/** Builds a rounded curve through points via quadratic-bezier-to-midpoint segments, instead of jagged straight lines between every raw (noisy) sample. */
+private fun buildSmoothPath(points: List<Offset>): Path {
+    val path = Path()
+    if (points.isEmpty()) return path
+    path.moveTo(points[0].x, points[0].y)
+    for (i in 1 until points.size) {
+        val prev = points[i - 1]
+        val curr = points[i]
+        val mid = Offset((prev.x + curr.x) / 2f, (prev.y + curr.y) / 2f)
+        path.quadraticTo(prev.x, prev.y, mid.x, mid.y)
+    }
+    path.lineTo(points.last().x, points.last().y)
+    return path
+}
+
 /** Derives a smoothed flow-rate (g/s) series from raw weight samples via finite differences. */
-private fun computeFlowRate(samples: List<ShotSample>, smoothWindow: Int = 3): List<Pair<Float, Float>> {
+private fun computeFlowRate(samples: List<ShotSample>, smoothWindow: Int = 6): List<Pair<Float, Float>> {
     if (samples.size < 2) return emptyList()
     val raw = (1 until samples.size).map { i ->
         val dt = samples[i].tSeconds - samples[i - 1].tSeconds
@@ -252,19 +269,19 @@ private fun EspressoShotSection(samples: List<ShotSample>) {
                         fun mapYWeight(w: Float) = size.height - (w / maxWeight) * size.height
                         fun mapYFlow(f: Float) = size.height - (f / maxFlow) * size.height
 
-                        val weightPath = Path()
-                        weightPoints.forEachIndexed { i, (t, w) ->
-                            val x = mapXt(t); val y = mapYWeight(w)
-                            if (i == 0) weightPath.moveTo(x, y) else weightPath.lineTo(x, y)
-                        }
-                        drawPath(weightPath, color = WeightLineColor, style = Stroke(width = 5f))
+                        val weightOffsets = weightPoints.map { (t, w) -> Offset(mapXt(t), mapYWeight(w)) }
+                        drawPath(
+                            buildSmoothPath(weightOffsets),
+                            color = WeightLineColor,
+                            style = Stroke(width = 5f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                        )
 
-                        val flowPath = Path()
-                        flowPoints.forEachIndexed { i, (t, f) ->
-                            val x = mapXt(t); val y = mapYFlow(f)
-                            if (i == 0) flowPath.moveTo(x, y) else flowPath.lineTo(x, y)
-                        }
-                        drawPath(flowPath, color = FlowLineColor, style = Stroke(width = 4f))
+                        val flowOffsets = flowPoints.map { (t, f) -> Offset(mapXt(t), mapYFlow(f)) }
+                        drawPath(
+                            buildSmoothPath(flowOffsets),
+                            color = FlowLineColor,
+                            style = Stroke(width = 4f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                        )
                     }
 
                     AxisLabels(maxWeight, alignEnd = true, modifier = Modifier.width(32.dp).fillMaxHeight())
