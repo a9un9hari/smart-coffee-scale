@@ -120,6 +120,37 @@ exercised on real silicon so far.
 
 ---
 
+## 2026-09-11: Reference guide added, display driver corrected
+
+User added `docs/Reference Guide/` (prepared separately, describing itself
+as part of a larger 16-document set most of which isn't present in this
+repo). Reading it surfaced two things worth recording:
+
+1. **The physical display received is an OLED SSD1306 128x64 (I2C)**, not
+   the ST7789 SPI panel the original prompt framework's optional "Display
+   Driver" prompt assumed - the reference guide explicitly notes this was a
+   substitution ("Received OLED I2C instead of ST7789 SPI"). Everything
+   built for ST7789/TFT_eSPI so far (including the `espressif32@6.5.0`
+   platform pin from the previous entry, which worked around a TFT_eSPI/
+   ESP32-C3 bug) was for hardware that was never actually connected.
+   Fixed: rewrote `display.h/.cpp` on `Adafruit_SSD1306` + `Adafruit_GFX`
+   over I2C (SDA=GPIO21, SCL=GPIO20). Public API (`drawWeight`/`drawMenu`/
+   `drawStatus`/`update`) unchanged. Verified stable boot on hardware after
+   the swap; flash usage actually went *down* (23.0% -> 21.3%).
+2. **The reference guide's own pin map is partly wrong**: it lists
+   GPIO13/14/15 as free/available SPI pins, which directly contradicts the
+   hardware-confirmed bootloop documented in the hardware bring-up entry
+   above. It was written before hardware bring-up happened and was never
+   corrected against real test results. `include/config.h`'s comments are
+   the trustworthy source for anything above GPIO7.
+
+The `espressif32@6.5.0` platform pin was left in place even though the bug
+it worked around no longer applies (no TFT_eSPI left in the project at
+all) - it's simply the combo that's actually been verified stable on this
+board, and there's no pressing need to churn it.
+
+---
+
 ## Known deviations from the original prompt framework
 
 Kept here so they don't get "fixed" back to the letter of the doc by
