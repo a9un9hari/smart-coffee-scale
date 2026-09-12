@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.*
 import com.agung.smartgrinder.ui.MainScreen
+import com.agung.smartgrinder.ui.theme.SmartGrinderTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -32,11 +33,14 @@ class MainActivity : ComponentActivity() {
         ) { permissionsGranted.value = hasPermissions() }
 
         setContent {
-            MainScreen(
-                viewModel = viewModel,
-                permissionsGranted = permissionsGranted.value,
-                onRequestPermissions = { permissionLauncher.launch(requiredPermissions) }
-            )
+            val darkTheme by viewModel.darkTheme.collectAsState()
+            SmartGrinderTheme(darkTheme = darkTheme) {
+                MainScreen(
+                    viewModel = viewModel,
+                    permissionsGranted = permissionsGranted.value,
+                    onRequestPermissions = { permissionLauncher.launch(requiredPermissions) }
+                )
+            }
         }
     }
 

@@ -16,6 +16,15 @@ data class ShotSample(val tSeconds: Float, val weightG: Float)
 class GrinderViewModel(application: Application) : AndroidViewModel(application) {
 
     private val ble = GrinderBleManager(application)
+    private val prefs = AppPreferences(application)
+
+    private val _darkTheme = MutableStateFlow(prefs.darkTheme)
+    val darkTheme: StateFlow<Boolean> = _darkTheme.asStateFlow()
+
+    fun setDarkTheme(enabled: Boolean) {
+        prefs.darkTheme = enabled
+        _darkTheme.value = enabled
+    }
 
     val connectionState: StateFlow<ConnectionState> = ble.connectionState
     val status: StateFlow<GrinderStatus?> = ble.status
@@ -55,6 +64,11 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
 
     fun connect() = ble.connect()
     fun disconnect() = ble.disconnect()
+
+    /** Tries to reconnect to the last device we paired with; falls back to a fresh scan if there isn't one. */
+    fun connectToSavedDevice() {
+        if (!ble.connectToSavedDevice()) ble.connect()
+    }
 
     fun setTargetWeight(grams: Float) = ble.sendCommand(BleCommand.setTargetWeight(grams))
     fun setMode(mode: GrinderMode) = ble.sendCommand(BleCommand.setMode(mode))

@@ -10,6 +10,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import com.agung.smartgrinder.AppPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,6 +38,7 @@ class GrinderBleManager(private val context: Context) {
 
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
     private val adapter: BluetoothAdapter? get() = bluetoothManager?.adapter
+    private val prefs = AppPreferences(context)
 
     private var gatt: BluetoothGatt? = null
     private var statusChar: BluetoothGattCharacteristic? = null
@@ -118,6 +120,28 @@ class GrinderBleManager(private val context: Context) {
         bleScanner.startScan(filters, settings, scanCallback)
     }
 
+    /**
+     * Connects straight to the last device we successfully paired with, skipping
+     * the active scan - used to reconnect automatically when the app opens.
+     * autoConnect=true means Android keeps waiting/retrying in the background
+     * until the grinder is actually in range and advertising, rather than
+     * failing immediately. Returns false (nothing to do) if we've never
+     * connected to a device before, so the caller can fall back to [connect].
+     */
+    @SuppressLint("MissingPermission")
+    fun connectToSavedDevice(): Boolean {
+        val a = adapter ?: return false
+        val savedAddress = prefs.lastDeviceAddress ?: return false
+        val device = try {
+            a.getRemoteDevice(savedAddress)
+        } catch (e: IllegalArgumentException) {
+            return false
+        }
+        _connectionState.value = ConnectionState.CONNECTING
+        gatt = device.connectGatt(context, true, gattCallback)
+        return true
+    }
+
     @SuppressLint("MissingPermission")
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -158,6 +182,7 @@ class GrinderBleManager(private val context: Context) {
             statusChar?.let { enqueue { enableNotify(g, it) } }
             calibrationStatusChar?.let { enqueue { enableNotify(g, it) } }
 
+            prefs.lastDeviceAddress = g.device.address
             _connectionState.value = ConnectionState.CONNECTED
         }
 
