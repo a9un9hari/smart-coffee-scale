@@ -70,6 +70,17 @@ void GrinderController::readSensors(uint32_t now) {
         _filtered_weight_g += WEIGHT_SMOOTHING_ALPHA * (raw_weight - _filtered_weight_g);
     }
     _status.current_weight_g = _filtered_weight_g;
+
+#if DEBUG_HX711_RAW
+    if (now - _last_debug_print_ms >= DEBUG_HX711_RAW_INTERVAL_MS) {
+        _last_debug_print_ms = now;
+        Serial.printf(
+            "[HX711] raw=%ld offset=%ld delta=%ld factor=%.6f raw_g=%.2f filtered_g=%.2f status=%d\n",
+            _scale.getLastRawAvg(), _scale.getOffset(),
+            _scale.getLastRawAvg() - _scale.getOffset(), _scale.getScaleFactor(),
+            raw_weight, _filtered_weight_g, (int)_scale.getStatus());
+    }
+#endif
 }
 
 void GrinderController::readCupDetect(uint32_t now) {

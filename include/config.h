@@ -35,6 +35,12 @@
 #define HX711_TIMEOUT_MS        10        // Bit-read timeout
 #define WEIGHT_SMOOTHING_ALPHA  0.35f     // extra EMA on top of HX711_AVG_SAMPLES; lower = smoother but more lag
 
+// Prints raw ADC count / offset / computed weight over Serial (115200) a
+// few times a second - for diagnosing weight jitter/drift (electrical vs
+// mechanical) independent of the smoothing filter. Turn off once done.
+#define DEBUG_HX711_RAW         1
+#define DEBUG_HX711_RAW_INTERVAL_MS 250
+
 // ============================================================
 // TIMING CONSTANTS
 // ============================================================

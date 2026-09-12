@@ -27,6 +27,9 @@ public:
 
     HX711Status getStatus() const { return _status; }
 
+    float getScaleFactor() const { return _scale_factor; }
+    long getLastRawAvg() const { return _last_avg_raw; } // the AVG_SAMPLES-averaged raw count behind the last readWeight()
+
 private:
     uint8_t _dout_pin;
     uint8_t _clk_pin;
@@ -34,6 +37,7 @@ private:
     long _offset;
     float _scale_factor;   // grams per raw count
     HX711Status _status;
+    long _last_avg_raw = 0;
 
     static const uint8_t AVG_SAMPLES = 5;
     static const uint32_t READ_TIMEOUT_US = 10000; // 10ms

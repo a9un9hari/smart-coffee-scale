@@ -47,6 +47,8 @@ private:
     float _filtered_weight_g = 0.0f;
     bool _filter_initialized = false;
 
+    uint32_t _last_debug_print_ms = 0; // throttles DEBUG_HX711_RAW logging
+
     // In-progress multi-point calibration session (cleared by BLE_OP_CAL_CLEAR,
     // filled by repeated BLE_OP_CAL_ADD_POINT, consumed by BLE_OP_CAL_SAVE).
     static const uint8_t MAX_CAL_POINTS = 8;

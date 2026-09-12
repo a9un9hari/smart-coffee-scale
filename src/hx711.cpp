@@ -90,6 +90,7 @@ float HX711::readWeight() {
     }
 
     long avg_raw = sum / got;
+    _last_avg_raw = avg_raw;
     float weight_g = (float)(avg_raw - _offset) * _scale_factor;
 
     if (weight_g > LOAD_CELL_CAPACITY_G) {
