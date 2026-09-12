@@ -1,0 +1,324 @@
+
+<div style="min-height: 100vh; background: linear-gradient(to bottom, #0a0a0a, #1a1a1a);">
+  <!-- App Frame Container (Dark Mode) -->
+  <div style="max-width: 380px; margin: 20px auto; background: #121212; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.8); overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+    
+    <!-- Status Bar (Dark) -->
+    <div style="background: #0a0a0a; color: #FFFFFF; padding: 8px 16px; font-size: 12px; display: flex; justify-content: space-between; align-items: center;">
+      <span>9:41</span>
+      <span>📶📡🔋</span>
+    </div>
+
+    <!-- Screen Container (Dark) -->
+    <div style="height: 680px; overflow-y: auto; background: #121212; position: relative;" id="screenContainer">
+      <!-- HOME SCREEN (Grind Mode - Dark) -->
+      <div class="screen" style="display: block; padding: 16px; min-height: 680px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="font-size: 24px; font-weight: 600; color: #D4A574; margin: 0;">Smart Grinder</h1>
+          <p style="font-size: 12px; color: #B3B3B3; margin: 4px 0 0 0;">Mazzer Mini D #1</p>
+        </div>
+
+        <!-- Active Mode Card (Dark) -->
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #333333; box-shadow: 0 2px 4px rgba(0,0,0,0.4);">
+          <p style="font-size: 12px; color: #B3B3B3; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 0.5px;">Current Mode</p>
+          <h2 style="font-size: 28px; font-weight: 600; color: #D4A574; margin: 0 0 16px 0;">Grind Mode</h2>
+          
+          <!-- Grind Level Control -->
+          <div style="margin: 20px 0; text-align: center;">
+            <p style="font-size: 12px; color: #B3B3B3; margin: 0 0 12px 0;">Grind Level</p>
+            <div style="font-size: 48px; font-weight: 600; color: #D4A574; margin-bottom: 16px;">6</div>
+            <input type="range" min="0" max="10" value="6" style="width: 100%; cursor: pointer; accent-color: #D4A574;" id="grindLevel">
+          </div>
+
+          <!-- Status Display -->
+          <div style="background: #2A2A2A; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: center;">
+            <div>
+              <p style="font-size: 11px; color: #B3B3B3; margin: 0;">Total Grinds</p>
+              <p style="font-size: 18px; font-weight: 600; color: #FFFFFF; margin: 4px 0 0 0;">1,247</p>
+            </div>
+            <div>
+              <p style="font-size: 11px; color: #B3B3B3; margin: 0;">Operating Hours</p>
+              <p style="font-size: 18px; font-weight: 600; color: #FFFFFF; margin: 4px 0 0 0;">42h</p>
+            </div>
+          </div>
+
+          <!-- Motor Control Buttons -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <button style="background: #D4A574; color: #1A1A1A; border: none; border-radius: 8px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer;">🟢 Start</button>
+            <button style="background: #FF6B6B; color: #FFFFFF; border: none; border-radius: 8px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer;">⏹️ Stop</button>
+          </div>
+        </div>
+
+        <!-- Quick Stats -->
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 16px; border: 1px solid #333333;">
+          <p style="font-size: 12px; color: #B3B3B3; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">Maintenance Status</p>
+          <div style="background: linear-gradient(90deg, #4ECDC4 0%, #4ECDC4 35%, #FFD700 35%, #FFD700 100%); height: 8px; border-radius: 4px; margin-bottom: 8px;"></div>
+          <p style="font-size: 12px; color: #B3B3B3; margin: 0;">35% of maintenance interval • 3,250 grinds until service</p>
+        </div>
+      </div>
+
+      <!-- ESPRESSO SCREEN (Dark) -->
+      <div class="screen" style="display: none; padding: 16px; min-height: 680px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="font-size: 24px; font-weight: 600; color: #D4A574; margin: 0;">Espresso Mode</h1>
+          <p style="font-size: 12px; color: #B3B3B3; margin: 4px 0 0 0;">Track & optimize shots</p>
+        </div>
+
+        <!-- Shot Input Card -->
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #333333;">
+          <div style="margin-bottom: 12px;">
+            <label style="font-size: 12px; color: #B3B3B3; display: block; margin-bottom: 4px;">Coffee Dose (g)</label>
+            <input type="number" value="18" placeholder="Enter dose" style="width: 100%; padding: 10px; border: 1px solid #333333; border-radius: 6px; font-size: 14px; background: #1E1E1E; color: #FFFFFF;">
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+            <div>
+              <label style="font-size: 12px; color: #B3B3B3; display: block; margin-bottom: 4px;">Time (s)</label>
+              <input type="number" value="25" placeholder="Time" style="width: 100%; padding: 10px; border: 1px solid #333333; border-radius: 6px; font-size: 14px; background: #1E1E1E; color: #FFFFFF;">
+            </div>
+            <div>
+              <label style="font-size: 12px; color: #B3B3B3; display: block; margin-bottom: 4px;">Yield (g)</label>
+              <input type="number" value="36" placeholder="Yield" style="width: 100%; padding: 10px; border: 1px solid #333333; border-radius: 6px; font-size: 14px; background: #1E1E1E; color: #FFFFFF;">
+            </div>
+          </div>
+
+          <button style="width: 100%; background: #D4A574; color: #1A1A1A; border: none; border-radius: 8px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer;">Save Shot</button>
+        </div>
+
+        <!-- AI Recommendation (Dark) -->
+        <div style="background: #2A2A2A; border-left: 4px solid #4ECDC4; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+          <p style="font-size: 12px; color: #4ECDC4; margin: 0 0 8px 0; font-weight: 600;">✓ Perfect extraction</p>
+          <p style="font-size: 13px; color: #B3B3B3; margin: 0;">TDS 1.4% • 25s pull time • 1:2 ratio. Keep this grind setting!</p>
+        </div>
+
+        <!-- Recent Shots -->
+        <p style="font-size: 12px; color: #B3B3B3; margin: 16px 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">Recent Shots</p>
+        <div style="background: #1E1E1E; border-radius: 8px; overflow: hidden; border: 1px solid #333333;">
+          <div style="padding: 12px; border-bottom: 1px solid #333333; display: flex; justify-content: space-between; align-items: center;">
+            <div><p style="margin: 0; font-size: 12px; color: #B3B3B3;">Yesterday</p><p style="margin: 4px 0 0 0; font-size: 13px; font-weight: 600; color: #FFFFFF;">18g → 36g (25s)</p></div>
+            <span style="background: #4ECDC4; color: #1A1A1A; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">Perfect</span>
+          </div>
+          <div style="padding: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <div><p style="margin: 0; font-size: 12px; color: #B3B3B3;">2 days ago</p><p style="margin: 4px 0 0 0; font-size: 13px; font-weight: 600; color: #FFFFFF;">18g → 35g (24s)</p></div>
+            <span style="background: #FFD700; color: #1A1A1A; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">Adjust</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCALE SCREEN (Dark) -->
+      <div class="screen" style="display: none; padding: 16px; min-height: 680px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="font-size: 24px; font-weight: 600; color: #D4A574; margin: 0;">Scale Mode</h1>
+          <p style="font-size: 12px; color: #B3B3B3; margin: 4px 0 0 0;">Precision weighing</p>
+        </div>
+
+        <!-- Weight Display -->
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 24px; margin-bottom: 16px; border: 1px solid #333333; text-align: center;">
+          <p style="font-size: 12px; color: #B3B3B3; margin: 0 0 16px 0;">Current Weight</p>
+          <div style="font-size: 56px; font-weight: 600; color: #D4A574; margin: 0; font-family: 'Monaco', monospace;">24.5g</div>
+          <p style="font-size: 12px; color: #B3B3B3; margin: 12px 0 0 0;">±0.05g precision</p>
+        </div>
+
+        <!-- Tare Button -->
+        <button style="width: 100%; background: #D4A574; color: #1A1A1A; border: none; border-radius: 8px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer; margin-bottom: 16px;">↺ Tare (Reset to 0)</button>
+
+        <!-- Quick Portioning -->
+        <p style="font-size: 12px; color: #B3B3B3; margin: 16px 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">Quick Portions</p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+          <button style="background: #333333; border: 1px solid #4D4D4D; border-radius: 8px; padding: 12px; font-size: 12px; font-weight: 600; cursor: pointer; color: #B3B3B3;">17g</button>
+          <button style="background: #333333; border: 1px solid #4D4D4D; border-radius: 8px; padding: 12px; font-size: 12px; font-weight: 600; cursor: pointer; color: #B3B3B3;">18g</button>
+          <button style="background: #333333; border: 1px solid #4D4D4D; border-radius: 8px; padding: 12px; font-size: 12px; font-weight: 600; cursor: pointer; color: #B3B3B3;">19g</button>
+        </div>
+      </div>
+
+      <!-- TIMER SCREEN (Dark) -->
+      <div class="screen" style="display: none; padding: 16px; min-height: 680px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="font-size: 24px; font-weight: 600; color: #D4A574; margin: 0;">Timer Mode</h1>
+          <p style="font-size: 12px; color: #B3B3B3; margin: 4px 0 0 0;">Brew timing & weight tracking</p>
+        </div>
+
+        <!-- Timer Display -->
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 24px; margin-bottom: 16px; border: 1px solid #333333; text-align: center;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
+            <div>
+              <p style="font-size: 11px; color: #B3B3B3; margin: 0;">Time</p>
+              <p style="font-size: 32px; font-weight: 600; color: #FFFFFF; margin: 8px 0 0 0; font-family: 'Monaco', monospace;">2:34</p>
+            </div>
+            <div>
+              <p style="font-size: 11px; color: #B3B3B3; margin: 0;">Weight</p>
+              <p style="font-size: 32px; font-weight: 600; color: #D4A574; margin: 8px 0 0 0; font-family: 'Monaco', monospace;">125g</p>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <button style="background: #4ECDC4; color: #1A1A1A; border: none; border-radius: 8px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer;">▶ Start</button>
+            <button style="background: #FFD700; color: #1A1A1A; border: none; border-radius: 8px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer;">⏸ Pause</button>
+          </div>
+        </div>
+
+        <!-- Timer Type -->
+        <p style="font-size: 12px; color: #B3B3B3; margin: 16px 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">Timer Type</p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+          <button style="background: #D4A574; color: #1A1A1A; border: none; border-radius: 8px; padding: 12px; font-size: 12px; font-weight: 600; cursor: pointer;">Manual</button>
+          <button style="background: #333333; border: 1px solid #4D4D4D; border-radius: 8px; padding: 12px; font-size: 12px; font-weight: 600; cursor: pointer; color: #B3B3B3;">Auto-detect</button>
+          <button style="background: #333333; border: 1px solid #4D4D4D; border-radius: 8px; padding: 12px; font-size: 12px; font-weight: 600; cursor: pointer; color: #B3B3B3;">Hybrid</button>
+        </div>
+      </div>
+
+      <!-- BREW ASSIST SCREEN (Dark) -->
+      <div class="screen" style="display: none; padding: 16px; min-height: 680px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="font-size: 24px; font-weight: 600; color: #D4A574; margin: 0;">Manual Brew</h1>
+          <p style="font-size: 12px; color: #B3B3B3; margin: 4px 0 0 0;">Professional brew guidance</p>
+        </div>
+
+        <!-- Brew Method Selection -->
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 12px; margin-bottom: 16px; border: 1px solid #333333;">
+          <select style="width: 100%; padding: 10px; border: 1px solid #333333; border-radius: 6px; font-size: 14px; background: #1E1E1E; color: #FFFFFF;">
+            <option>Select brew method...</option>
+            <option>V60</option>
+            <option>French Press</option>
+            <option>AeroPress</option>
+            <option>Chemex</option>
+            <option>Turkish</option>
+            <option>Moka Pot</option>
+          </select>
+        </div>
+
+        <!-- Phase Guidance -->
+        <p style="font-size: 12px; color: #B3B3B3; margin: 16px 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">Current Phase</p>
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 2px solid #D4A574;">
+          <p style="font-size: 12px; color: #B3B3B3; margin: 0 0 8px 0;">Phase 1 of 3</p>
+          <h3 style="font-size: 18px; font-weight: 600; color: #FFFFFF; margin: 0 0 12px 0;">Bloom</h3>
+          <p style="font-size: 13px; color: #B3B3B3; margin: 0 0 12px 0;">Pour slowly to saturate coffee grounds evenly</p>
+          
+          <div style="background: #2A2A2A; border-radius: 8px; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: center; margin-bottom: 12px;">
+            <div>
+              <p style="font-size: 11px; color: #B3B3B3; margin: 0;">Target Weight</p>
+              <p style="font-size: 18px; font-weight: 600; color: #FFFFFF; margin: 4px 0 0 0;">60g</p>
+            </div>
+            <div>
+              <p style="font-size: 11px; color: #B3B3B3; margin: 0;">Duration</p>
+              <p style="font-size: 18px; font-weight: 600; color: #FFFFFF; margin: 4px 0 0 0;">45s</p>
+            </div>
+          </div>
+
+          <div style="background: #FFF3E0; border-radius: 6px; padding: 8px; text-align: center; border-left: 4px solid #FFD700;">
+            <p style="font-size: 13px; font-weight: 600; color: #BA7517; margin: 0;">⚠ Pour rate too fast</p>
+          </div>
+        </div>
+
+        <!-- Flow Rate Graph -->
+        <p style="font-size: 12px; color: #B3B3B3; margin: 16px 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">Pour Rate</p>
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 16px; border: 1px solid #333333;">
+          <svg viewBox="0 0 300 80" style="width: 100%; height: 80px;">
+            <polyline points="10,60 30,50 50,45 70,40 90,35 110,30 130,25 150,28 170,35 190,45 210,55 230,65 250,70 270,75" fill="none" stroke="#D4A574" stroke-width="2"/>
+            <line x1="0" y1="75" x2="300" y2="75" stroke="#333333" stroke-width="1"/>
+            <text x="10" y="95" font-size="11" fill="#B3B3B3">0s</text>
+            <text x="280" y="95" font-size="11" fill="#B3B3B3">45s</text>
+          </svg>
+          <p style="font-size: 12px; color: #B3B3B3; margin: 12px 0 0 0; text-align: center;">Real-time pour rate visualization</p>
+        </div>
+      </div>
+
+      <!-- SETTINGS SCREEN (Dark) -->
+      <div class="screen" style="display: none; padding: 16px; min-height: 680px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="font-size: 24px; font-weight: 600; color: #D4A574; margin: 0;">Settings</h1>
+          <p style="font-size: 12px; color: #B3B3B3; margin: 4px 0 0 0;">Configuration & preferences</p>
+        </div>
+
+        <!-- Device Selection -->
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #333333;">
+          <p style="font-size: 12px; color: #B3B3B3; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">Connected Device</p>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #2A2A2A; border-radius: 8px;">
+            <div>
+              <p style="font-size: 13px; font-weight: 600; color: #FFFFFF; margin: 0;">La Mardjono Smart Scale</p>
+              <p style="font-size: 11px; color: #B3B3B3; margin: 4px 0 0 0;">Bluetooth • Connected</p>
+            </div>
+            <span style="color: #4ECDC4; font-size: 18px;">✓</span>
+          </div>
+        </div>
+
+        <!-- Unit Selection -->
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #333333;">
+          <p style="font-size: 12px; color: #B3B3B3; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">Units</p>
+          <select style="width: 100%; padding: 10px; border: 1px solid #333333; border-radius: 6px; font-size: 14px; background: #1E1E1E; color: #FFFFFF;">
+            <option>Grams (g)</option>
+            <option>Ounces (oz)</option>
+          </select>
+        </div>
+
+        <!-- Grinder Selection -->
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #333333;">
+          <p style="font-size: 12px; color: #B3B3B3; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">Active Grinder</p>
+          <select style="width: 100%; padding: 10px; border: 1px solid #333333; border-radius: 6px; font-size: 14px; background: #1E1E1E; color: #FFFFFF;">
+            <option>Mazzer Mini D #1</option>
+            <option>Baratza Sette 270</option>
+            <option>Wilfa Svart</option>
+          </select>
+        </div>
+
+        <!-- About -->
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 16px; border: 1px solid #333333;">
+          <p style="font-size: 12px; color: #B3B3B3; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">About</p>
+          <p style="font-size: 13px; color: #FFFFFF; margin: 0;">La Mardjono Instruments • v1.0.0</p>
+          <p style="font-size: 12px; color: #B3B3B3; margin: 8px 0 0 0;">© 2026 Dapur Mardjono</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Navigation (Dark) -->
+    <div style="background: #1A1A1A; border-top: 1px solid #333333; display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;">
+      <button onclick="showScreen(0)" class="nav-btn active" style="border: none; padding: 12px; text-align: center; cursor: pointer; border-radius: 0; background: transparent; color: #B3B3B3; font-size: 11px; transition: all 0.2s;">
+        <div style="font-size: 20px; margin-bottom: 4px;">⚙️</div>
+        <div>Grind</div>
+      </button>
+      <button onclick="showScreen(1)" class="nav-btn" style="border: none; padding: 12px; text-align: center; cursor: pointer; border-radius: 0; background: transparent; color: #B3B3B3; font-size: 11px; transition: all 0.2s;">
+        <div style="font-size: 20px; margin-bottom: 4px;">☕</div>
+        <div>Espresso</div>
+      </button>
+      <button onclick="showScreen(2)" class="nav-btn" style="border: none; padding: 12px; text-align: center; cursor: pointer; border-radius: 0; background: transparent; color: #B3B3B3; font-size: 11px; transition: all 0.2s;">
+        <div style="font-size: 20px; margin-bottom: 4px;">⚖️</div>
+        <div>Scale</div>
+      </button>
+      <button onclick="showScreen(3)" class="nav-btn" style="border: none; padding: 12px; text-align: center; cursor: pointer; border-radius: 0; background: transparent; color: #B3B3B3; font-size: 11px; transition: all 0.2s;">
+        <div style="font-size: 20px; margin-bottom: 4px;">⏱️</div>
+        <div>Timer</div>
+      </button>
+      <button onclick="showScreen(4)" class="nav-btn" style="border: none; padding: 12px; text-align: center; cursor: pointer; border-radius: 0; background: transparent; color: #B3B3B3; font-size: 11px; transition: all 0.2s;">
+        <div style="font-size: 20px; margin-bottom: 4px;">📊</div>
+        <div>Brew</div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Dark Mode Note -->
+  <div style="max-width: 380px; margin: 20px auto; background: #1E1E1E; border-radius: 12px; padding: 16px; border: 1px solid #333333;">
+    <p style="font-size: 12px; color: #B3B3B3; margin: 0; text-align: center;">🌙 Dark Mode • Coffee Brown #D4A574 • WCAG AAA Accessible</p>
+  </div>
+</div>
+
+<script>
+function showScreen(index) {
+  const screens = document.querySelectorAll('.screen');
+  const navBtns = document.querySelectorAll('.nav-btn');
+  
+  screens.forEach((screen, i) => {
+    screen.style.display = i === index ? 'block' : 'none';
+  });
+  
+  navBtns.forEach((btn, i) => {
+    if (i === index) {
+      btn.style.color = '#D4A574';
+      btn.style.borderTop = '3px solid #D4A574';
+      btn.style.fontWeight = '600';
+    } else {
+      btn.style.color = '#B3B3B3';
+      btn.style.borderTop = 'none';
+      btn.style.fontWeight = '400';
+    }
+  });
+}
+</script>
