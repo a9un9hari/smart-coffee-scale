@@ -1,0 +1,145 @@
+
+<div style="min-height: 100vh; background: linear-gradient(to bottom, #0a0a0a, #1a1a1a); padding: 20px 0;">
+  <div style="max-width: 380px; margin: 0 auto; background: #121212; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.8); overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+    
+    <!-- Status Bar -->
+    <div style="background: #0a0a0a; color: #FFFFFF; padding: 8px 16px; font-size: 12px; display: flex; justify-content: space-between; align-items: center;">
+      <span>9:41</span>
+      <span>📶📡🔋</span>
+    </div>
+
+    <!-- Screen Content - Portrait -->
+    <div id="portraitMode" style="height: 680px; background: #121212; padding: 20px; overflow-y: auto; display: block;">
+      
+      <!-- Header -->
+      <div style="text-align: center; margin-bottom: 32px;">
+        <h1 style="font-size: 24px; font-weight: 600; color: #D4A574; margin: 0;">Scale Mode</h1>
+        <p style="font-size: 12px; color: #B3B3B3; margin: 4px 0 0 0;">Precision weighing</p>
+      </div>
+
+      <!-- Main Card - Portrait -->
+      <div style="background: #1E1E1E; border-radius: 12px; padding: 28px 20px; margin-bottom: 16px; border: 1px solid #333333; text-align: center;">
+        
+        <!-- Current Weight -->
+        <p style="font-size: 12px; color: #B3B3B3; margin: 0 0 20px 0; text-transform: uppercase; letter-spacing: 0.5px;">Current Weight</p>
+        <div style="font-size: 64px; font-weight: 600; color: #D4A574; margin: 0 0 8px 0; font-family: 'Monaco', monospace; line-height: 1;">24.5g</div>
+        <p style="font-size: 12px; color: #B3B3B3; margin: 0 0 32px 0;">±0.05g precision</p>
+
+        <!-- Tare Button -->
+        <button style="width: 100%; background: #D4A574; color: #1A1A1A; border: none; border-radius: 8px; padding: 16px; font-size: 16px; font-weight: 600; cursor: pointer; margin-bottom: 24px; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.4);">↺ TARE</button>
+
+        <!-- Divider -->
+        <div style="height: 1px; background: #333333; margin-bottom: 24px;"></div>
+
+        <!-- Flow Rate Section -->
+        <div style="text-align: center;">
+          <p style="font-size: 12px; color: #B3B3B3; margin: 0 0 16px 0; text-transform: uppercase; letter-spacing: 0.5px;">Flow Rate</p>
+          <div style="display: flex; justify-content: center; align-items: baseline; gap: 6px; margin-bottom: 16px;">
+            <span style="font-size: 36px; font-weight: 600; color: #D4A574; font-family: 'Monaco', monospace;">2.3</span>
+            <span style="font-size: 14px; color: #B3B3B3;">g/s</span>
+          </div>
+
+          <!-- Flow Rate Progress Bar -->
+          <div style="background: #2A2A2A; border-radius: 4px; height: 6px; overflow: hidden;">
+            <div style="background: linear-gradient(90deg, #4ECDC4 0%, #FFD700 50%, #FF6B6B 100%); height: 100%; width: 65%; border-radius: 4px;"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Info Card -->
+      <div style="background: #2A2A2A; border-left: 4px solid #66D9EF; border-radius: 8px; padding: 12px; font-size: 12px; color: #B3B3B3;">
+        <p style="margin: 0;">💡 Auto-detects pour start • Real-time flow rate</p>
+      </div>
+
+    </div>
+
+    <!-- Screen Content - Landscape (Hidden, for demo) -->
+    <div id="landscapeMode" style="height: 680px; background: #121212; padding: 16px; overflow-y: auto; display: none;">
+      
+      <!-- Header -->
+      <div style="text-align: center; margin-bottom: 20px;">
+        <h1 style="font-size: 20px; font-weight: 600; color: #D4A574; margin: 0;">Scale Mode</h1>
+      </div>
+
+      <!-- Landscape Layout - Two Columns -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+        
+        <!-- Left: Weight Display -->
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 20px; border: 1px solid #333333; text-align: center;">
+          <p style="font-size: 11px; color: #B3B3B3; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">Weight</p>
+          <div style="font-size: 48px; font-weight: 600; color: #D4A574; margin: 0; font-family: 'Monaco', monospace;">24.5g</div>
+          <p style="font-size: 10px; color: #B3B3B3; margin: 8px 0 0 0;">±0.05g</p>
+        </div>
+
+        <!-- Right: Flow Rate Display -->
+        <div style="background: #1E1E1E; border-radius: 12px; padding: 20px; border: 1px solid #333333; text-align: center;">
+          <p style="font-size: 11px; color: #B3B3B3; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">Flow Rate</p>
+          <div style="display: flex; justify-content: center; align-items: baseline; gap: 4px;">
+            <span style="font-size: 48px; font-weight: 600; color: #D4A574; font-family: 'Monaco', monospace;">2.3</span>
+            <span style="font-size: 12px; color: #B3B3B3;">g/s</span>
+          </div>
+          
+          <!-- Small progress bar -->
+          <div style="background: #2A2A2A; border-radius: 3px; height: 4px; margin-top: 12px; overflow: hidden;">
+            <div style="background: linear-gradient(90deg, #4ECDC4, #FFD700, #FF6B6B); height: 100%; width: 65%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tare Button - Full Width -->
+      <button style="width: 100%; background: #D4A574; color: #1A1A1A; border: none; border-radius: 8px; padding: 14px; font-size: 14px; font-weight: 600; cursor: pointer; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.4);">↺ TARE</button>
+
+      <!-- Info -->
+      <div style="background: #2A2A2A; border-left: 4px solid #66D9EF; border-radius: 8px; padding: 10px; font-size: 11px; color: #B3B3B3;">
+        <p style="margin: 0;">💡 Auto-detects pour • Real-time flow rate</p>
+      </div>
+
+    </div>
+
+    <!-- Bottom Nav -->
+    <div style="background: #1A1A1A; border-top: 1px solid #333333; display: grid; grid-template-columns: repeat(5, 1fr);">
+      <button style="border: none; padding: 12px; text-align: center; cursor: pointer; color: #B3B3B3; font-size: 11px; background: transparent;">
+        <div style="font-size: 20px; margin-bottom: 4px;">⚙️</div>
+        <div>Grind</div>
+      </button>
+      <button style="border: none; padding: 12px; text-align: center; cursor: pointer; color: #B3B3B3; font-size: 11px; background: transparent;">
+        <div style="font-size: 20px; margin-bottom: 4px;">☕</div>
+        <div>Espresso</div>
+      </button>
+      <button style="border: none; padding: 12px; text-align: center; cursor: pointer; color: #D4A574; border-top: 3px solid #D4A574; font-size: 11px; font-weight: 600; background: transparent;">
+        <div style="font-size: 20px; margin-bottom: 4px;">⚖️</div>
+        <div>Scale</div>
+      </button>
+      <button style="border: none; padding: 12px; text-align: center; cursor: pointer; color: #B3B3B3; font-size: 11px; background: transparent;">
+        <div style="font-size: 20px; margin-bottom: 4px;">⏱️</div>
+        <div>Timer</div>
+      </button>
+      <button style="border: none; padding: 12px; text-align: center; cursor: pointer; color: #B3B3B3; font-size: 11px; background: transparent;">
+        <div style="font-size: 20px; margin-bottom: 4px;">📊</div>
+        <div>Brew</div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div style="max-width: 380px; margin: 20px auto; text-align: center;">
+    <button onclick="toggleOrientation()" style="background: #D4A574; color: #1A1A1A; border: none; border-radius: 8px; padding: 10px 16px; font-size: 12px; font-weight: 600; cursor: pointer;">Toggle Portrait/Landscape</button>
+  </div>
+
+</div>
+
+<script>
+function toggleOrientation() {
+  const portrait = document.getElementById('portraitMode');
+  const landscape = document.getElementById('landscapeMode');
+  
+  if (portrait.style.display === 'block') {
+    portrait.style.display = 'none';
+    landscape.style.display = 'block';
+  } else {
+    portrait.style.display = 'block';
+    landscape.style.display = 'none';
+  }
+}
+</script>

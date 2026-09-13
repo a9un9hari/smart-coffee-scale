@@ -1,0 +1,390 @@
+
+<div style="min-height: 100vh; background: linear-gradient(to bottom, #0a0a0a, #1a1a1a); padding: 20px 0;">
+  <div style="max-width: 380px; margin: 0 auto; background: #121212; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.8); overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+    
+    <!-- Status Bar -->
+    <div style="background: #0a0a0a; color: #FFFFFF; padding: 8px 16px; font-size: 12px; display: flex; justify-content: space-between; align-items: center;">
+      <span>9:41</span>
+      <span>📶📡🔋</span>
+    </div>
+
+    <!-- PORTRAIT: INPUT PHASE -->
+    <div id="inputPhasePortrait" style="height: 680px; background: #121212; padding: 20px; overflow-y: auto; display: block;">
+      
+      <div style="text-align: center; margin-bottom: 28px;">
+        <h1 style="font-size: 24px; font-weight: 600; color: #D4A574; margin: 0;">Manual Brew</h1>
+        <p style="font-size: 12px; color: #B3B3B3; margin: 4px 0 0 0;">Setup & brew</p>
+      </div>
+
+      <!-- Brew Method -->
+      <div style="margin-bottom: 20px;">
+        <label style="font-size: 12px; color: #B3B3B3; display: block; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Brew Method</label>
+        <select style="width: 100%; padding: 12px; border: 1px solid #333333; border-radius: 8px; font-size: 14px; background: #1E1E1E; color: #FFFFFF;">
+          <option>V60</option>
+          <option>French Press</option>
+          <option>AeroPress</option>
+          <option>Chemex</option>
+          <option>Turkish</option>
+          <option>Moka Pot</option>
+        </select>
+      </div>
+
+      <!-- Ground Coffee Large Box -->
+      <div style="margin-bottom: 28px;">
+        <label style="font-size: 12px; color: #B3B3B3; display: block; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Ground Coffee</label>
+        <div onclick="alert('Tap to weigh coffee on scale')" style="background: #1E1E1E; border-radius: 12px; padding: 28px; border: 2px solid #333333; text-align: center; cursor: pointer; transition: all 0.2s;">
+          <p style="font-size: 12px; color: #B3B3B3; margin: 0 0 12px 0;">Tap to weigh</p>
+          <div style="font-size: 64px; font-weight: 600; color: #D4A574; font-family: 'Monaco', monospace; margin: 0; line-height: 1;">30</div>
+          <p style="font-size: 11px; color: #B3B3B3; margin: 8px 0 0 0;">g</p>
+        </div>
+      </div>
+
+      <!-- Coffee | Ratio | Water - ONE LINE -->
+      <div style="background: #1E1E1E; border-radius: 12px; padding: 20px; border: 1px solid #333333; margin-bottom: 28px;">
+        <div style="display: flex; justify-content: space-around; align-items: center; gap: 16px;">
+          
+          <!-- Coffee -->
+          <div style="text-align: center; flex: 1;">
+            <div style="font-size: 24px; font-weight: 600; color: #FFFFFF; font-family: 'Monaco', monospace;">
+              30<span style="font-size: 12px; color: #B3B3B3; font-weight: 400; margin-left: 2px;">g</span>
+            </div>
+            <p style="font-size: 10px; color: #B3B3B3; margin: 6px 0 0 0; text-transform: uppercase; letter-spacing: 0.3px;">coffee</p>
+          </div>
+
+          <!-- Ratio (Center, larger) -->
+          <div style="text-align: center; flex: 1;">
+            <div style="font-size: 28px; font-weight: 600; color: #D4A574; font-family: 'Monaco', monospace;" id="ratioDisplayPortrait">1:16</div>
+            <p style="font-size: 10px; color: #B3B3B3; margin: 6px 0 0 0; text-transform: uppercase; letter-spacing: 0.3px;">ratio</p>
+          </div>
+
+          <!-- Water -->
+          <div style="text-align: center; flex: 1;">
+            <div style="font-size: 24px; font-weight: 600; color: #D4A574; font-family: 'Monaco', monospace;" id="waterDisplayPortrait">
+              480<span style="font-size: 12px; color: #B3B3B3; font-weight: 400; margin-left: 2px;">g</span>
+            </div>
+            <p style="font-size: 10px; color: #B3B3B3; margin: 6px 0 0 0; text-transform: uppercase; letter-spacing: 0.3px;">water</p>
+          </div>
+        </div>
+
+        <!-- Ratio Slider below -->
+        <div style="margin-top: 20px;">
+          <input type="range" min="5" max="25" value="16" step="0.5" id="ratioSlider" 
+            style="width: 100%; cursor: pointer; accent-color: #D4A574;" 
+            oninput="updateRatio()">
+          <p style="font-size: 9px; color: #B3B3B3; margin: 6px 0 0 0; text-align: center;">↑ Adjust ↓</p>
+        </div>
+      </div>
+
+      <!-- Start Brewing Button -->
+      <button onclick="startBrewing()" style="width: 100%; background: #D4A574; color: #1A1A1A; border: none; border-radius: 8px; padding: 16px; font-size: 16px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.4);">▶ Start Brewing</button>
+
+    </div>
+
+    <!-- LANDSCAPE: INPUT PHASE -->
+    <div id="inputPhaseLandscape" style="height: 680px; background: #121212; padding: 16px; overflow-y: auto; display: none;">
+      
+      <div style="text-align: center; margin-bottom: 16px;">
+        <h1 style="font-size: 20px; font-weight: 600; color: #D4A574; margin: 0;">Manual Brew</h1>
+      </div>
+
+      <!-- Brew Method -->
+      <div style="margin-bottom: 12px;">
+        <label style="font-size: 10px; color: #B3B3B3; display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Brew</label>
+        <select style="width: 100%; padding: 10px; border: 1px solid #333333; border-radius: 8px; font-size: 12px; background: #1E1E1E; color: #FFFFFF;">
+          <option>V60</option>
+          <option>French Press</option>
+          <option>AeroPress</option>
+          <option>Chemex</option>
+        </select>
+      </div>
+
+      <!-- Ground Coffee -->
+      <div style="margin-bottom: 12px;">
+        <label style="font-size: 10px; color: #B3B3B3; display: block; margin-bottom: 4px; text-transform: uppercase;">Coffee</label>
+        <div onclick="alert('Tap to weigh')" style="background: #1E1E1E; border-radius: 8px; padding: 12px; border: 1px solid #333333; text-align: center; cursor: pointer;">
+          <div style="font-size: 28px; font-weight: 600; color: #D4A574; font-family: 'Monaco', monospace;">30<span style="font-size: 10px; color: #B3B3B3; margin-left: 2px;">g</span></div>
+        </div>
+      </div>
+
+      <!-- Coffee | Ratio | Water - Landscape ONE LINE -->
+      <div style="background: #1E1E1E; border-radius: 8px; padding: 12px; border: 1px solid #333333; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-around; align-items: center; gap: 12px;">
+          
+          <div style="text-align: center; flex: 1;">
+            <div style="font-size: 18px; font-weight: 600; color: #FFFFFF; font-family: 'Monaco', monospace;">30<span style="font-size: 10px; color: #B3B3B3; margin-left: 2px;">g</span></div>
+            <p style="font-size: 8px; color: #B3B3B3; margin: 4px 0 0 0;">coffee</p>
+          </div>
+
+          <div style="text-align: center; flex: 1;">
+            <div style="font-size: 20px; font-weight: 600; color: #D4A574; font-family: 'Monaco', monospace;" id="ratioDisplayLandscape">1:16</div>
+            <p style="font-size: 8px; color: #B3B3B3; margin: 4px 0 0 0;">ratio</p>
+          </div>
+
+          <div style="text-align: center; flex: 1;">
+            <div style="font-size: 18px; font-weight: 600; color: #D4A574; font-family: 'Monaco', monospace;" id="waterDisplayLandscape">480<span style="font-size: 10px; color: #B3B3B3; margin-left: 2px;">g</span></div>
+            <p style="font-size: 8px; color: #B3B3B3; margin: 4px 0 0 0;">water</p>
+          </div>
+        </div>
+
+        <div style="margin-top: 8px;">
+          <input type="range" min="5" max="25" value="16" step="0.5" id="ratioSliderLandscape" 
+            style="width: 100%; cursor: pointer; accent-color: #D4A574;" 
+            oninput="updateRatio()">
+        </div>
+      </div>
+
+      <!-- Start Button -->
+      <button onclick="startBrewing()" style="width: 100%; background: #D4A574; color: #1A1A1A; border: none; border-radius: 8px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.4);">▶ Start</button>
+
+    </div>
+
+    <!-- PORTRAIT: BREWING LIVE -->
+    <div id="brewingPhasePortrait" style="height: 680px; background: #121212; padding: 20px; overflow-y: auto; display: none;">
+      
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="font-size: 24px; font-weight: 600; color: #D4A574; margin: 0;">Brewing...</h1>
+      </div>
+
+      <!-- Time | Ratio | Water - ONE LINE -->
+      <div style="background: #1E1E1E; border-radius: 12px; padding: 20px; border: 1px solid #333333; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-around; align-items: center; gap: 16px;">
+          
+          <div style="text-align: center; flex: 1;">
+            <div style="font-size: 24px; font-weight: 600; color: #FFFFFF; font-family: 'Monaco', monospace;" id="brewTimePortrait">0:45</div>
+            <p style="font-size: 10px; color: #B3B3B3; margin: 6px 0 0 0; text-transform: uppercase;">time</p>
+          </div>
+
+          <div style="text-align: center; flex: 1;">
+            <div style="font-size: 28px; font-weight: 600; color: #D4A574; font-family: 'Monaco', monospace;" id="brewRatioPortrait">1:4.8</div>
+            <p style="font-size: 10px; color: #B3B3B3; margin: 6px 0 0 0; text-transform: uppercase;">ratio</p>
+          </div>
+
+          <div style="text-align: center; flex: 1;">
+            <div style="font-size: 24px; font-weight: 600; color: #D4A574; font-family: 'Monaco', monospace;" id="brewWaterPortrait">145<span style="font-size: 12px; color: #B3B3B3; margin-left: 2px;">g</span></div>
+            <p style="font-size: 10px; color: #B3B3B3; margin: 6px 0 0 0; text-transform: uppercase;">water</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Progress Bar -->
+      <div style="margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+          <p style="font-size: 11px; color: #B3B3B3; margin: 0; text-transform: uppercase;">Progress</p>
+          <p style="font-size: 11px; color: #D4A574; margin: 0; font-weight: 600;" id="progressTextPortrait">145/480g</p>
+        </div>
+        <div style="background: #2A2A2A; border-radius: 6px; height: 12px; overflow: hidden;">
+          <div id="progressBarPortrait" style="background: linear-gradient(90deg, #4ECDC4, #FFD700); height: 100%; width: 30%; border-radius: 6px;"></div>
+        </div>
+      </div>
+
+      <!-- Graphs -->
+      <div style="background: #1E1E1E; border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #333333;">
+        <p style="font-size: 11px; color: #B3B3B3; margin: 0 0 12px 0; text-transform: uppercase;">Weight & Flow</p>
+        <svg viewBox="0 0 320 100" style="width: 100%; height: 100px;">
+          <line x1="0" y1="80" x2="320" y2="80" stroke="#333333" stroke-width="1"/>
+          <polyline points="10,75 20,72 30,69 40,65 50,60 60,55 70,52 80,50 90,49 100,48 110,50 120,55 130,62 140,70 150,78" 
+                    fill="none" stroke="#D4A574" stroke-width="2" stroke-linecap="round"/>
+          <polyline points="10,80 20,65 30,50 40,35 50,20 60,10 70,15 80,20 90,25 100,80 110,80 120,70 130,50 140,35 150,15" 
+                    fill="none" stroke="#4ECDC4" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+
+      <!-- Segments -->
+      <div style="background: #1E1E1E; border-radius: 12px; padding: 12px; border: 1px solid #333333; margin-bottom: 16px;">
+        <p style="font-size: 11px; color: #B3B3B3; margin: 0 0 10px 0; text-transform: uppercase;">Segments</p>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="background: #2A2A2A; border-left: 3px solid #4ECDC4; padding: 8px; border-radius: 4px; font-size: 11px;">
+            <p style="margin: 0; color: #4ECDC4; font-weight: 600;">Bloom</p>
+            <p style="margin: 2px 0 0 0; color: #B3B3B3;">0-45s • 60g</p>
+          </div>
+          <div style="background: #2A2A2A; border-left: 3px solid #FFD700; padding: 8px; border-radius: 4px; font-size: 11px;">
+            <p style="margin: 0; color: #FFD700; font-weight: 600;">Pour 1</p>
+            <p style="margin: 2px 0 0 0; color: #B3B3B3;">45-65s • 85g</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stop Button -->
+      <button onclick="stopBrewing()" style="width: 100%; background: #FF6B6B; color: #FFFFFF; border: none; border-radius: 8px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer;">⏹ Stop</button>
+
+    </div>
+
+    <!-- LANDSCAPE: BREWING LIVE -->
+    <div id="brewingPhaseLandscape" style="height: 680px; background: #121212; padding: 16px; overflow-y: auto; display: none;">
+      
+      <div style="text-align: center; margin-bottom: 12px;">
+        <h1 style="font-size: 20px; font-weight: 600; color: #D4A574; margin: 0;">Brewing...</h1>
+      </div>
+
+      <!-- Time | Ratio | Water - Landscape -->
+      <div style="background: #1E1E1E; border-radius: 8px; padding: 12px; border: 1px solid #333333; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-around; align-items: center; gap: 12px;">
+          
+          <div style="text-align: center; flex: 1;">
+            <div style="font-size: 20px; font-weight: 600; color: #FFFFFF; font-family: 'Monaco', monospace;" id="brewTimeLandscape">0:45</div>
+            <p style="font-size: 8px; color: #B3B3B3; margin: 4px 0 0 0; text-transform: uppercase;">time</p>
+          </div>
+
+          <div style="text-align: center; flex: 1;">
+            <div style="font-size: 22px; font-weight: 600; color: #D4A574; font-family: 'Monaco', monospace;" id="brewRatioLandscape">1:4.8</div>
+            <p style="font-size: 8px; color: #B3B3B3; margin: 4px 0 0 0; text-transform: uppercase;">ratio</p>
+          </div>
+
+          <div style="text-align: center; flex: 1;">
+            <div style="font-size: 20px; font-weight: 600; color: #D4A574; font-family: 'Monaco', monospace;" id="brewWaterLandscape">145<span style="font-size: 10px; color: #B3B3B3; margin-left: 2px;">g</span></div>
+            <p style="font-size: 8px; color: #B3B3B3; margin: 4px 0 0 0; text-transform: uppercase;">water</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Progress Bar -->
+      <div style="margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 10px;">
+          <p style="color: #B3B3B3; margin: 0; text-transform: uppercase;">Progress</p>
+          <p style="color: #D4A574; margin: 0; font-weight: 600;" id="progressTextLandscape">145/480g</p>
+        </div>
+        <div style="background: #2A2A2A; border-radius: 4px; height: 8px; overflow: hidden;">
+          <div id="progressBarLandscape" style="background: linear-gradient(90deg, #4ECDC4, #FFD700); height: 100%; width: 30%;"></div>
+        </div>
+      </div>
+
+      <!-- Graphs compact -->
+      <div style="background: #1E1E1E; border-radius: 8px; padding: 12px; margin-bottom: 12px; border: 1px solid #333333;">
+        <p style="font-size: 9px; color: #B3B3B3; margin: 0 0 8px 0; text-transform: uppercase;">Weight & Flow</p>
+        <svg viewBox="0 0 320 80" style="width: 100%; height: 80px;">
+          <line x1="0" y1="60" x2="320" y2="60" stroke="#333333" stroke-width="1"/>
+          <polyline points="10,55 20,52 30,49 40,45 50,40 60,35 70,32 80,30 90,29 100,28 110,30 120,35 130,42 140,50 150,58" 
+                    fill="none" stroke="#D4A574" stroke-width="2"/>
+          <polyline points="10,60 20,45 30,30 40,25 50,15 60,5 70,10 80,15 90,20 100,60 110,60 120,50 130,30 140,25 150,10" 
+                    fill="none" stroke="#4ECDC4" stroke-width="2"/>
+        </svg>
+      </div>
+
+      <!-- Segments compact -->
+      <div style="background: #1E1E1E; border-radius: 8px; padding: 10px; border: 1px solid #333333; margin-bottom: 12px;">
+        <p style="font-size: 9px; color: #B3B3B3; margin: 0 0 6px 0; text-transform: uppercase;">Segments</p>
+        <div style="display: flex; gap: 8px;">
+          <div style="background: #2A2A2A; border-left: 3px solid #4ECDC4; padding: 6px; border-radius: 4px; flex: 1; font-size: 9px;">
+            <p style="margin: 0; color: #4ECDC4; font-weight: 600;">Bloom</p>
+            <p style="margin: 2px 0 0 0; color: #B3B3B3; font-size: 8px;">0-45s</p>
+          </div>
+          <div style="background: #2A2A2A; border-left: 3px solid #FFD700; padding: 6px; border-radius: 4px; flex: 1; font-size: 9px;">
+            <p style="margin: 0; color: #FFD700; font-weight: 600;">Pour 1</p>
+            <p style="margin: 2px 0 0 0; color: #B3B3B3; font-size: 8px;">45-65s</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stop Button -->
+      <button onclick="stopBrewing()" style="width: 100%; background: #FF6B6B; color: #FFFFFF; border: none; border-radius: 8px; padding: 10px; font-size: 12px; font-weight: 600; cursor: pointer;">⏹ Stop</button>
+
+    </div>
+
+    <!-- Bottom Nav -->
+    <div style="background: #1A1A1A; border-top: 1px solid #333333; display: grid; grid-template-columns: repeat(5, 1fr);">
+      <button style="border: none; padding: 12px; text-align: center; cursor: pointer; color: #B3B3B3; font-size: 11px; background: transparent;">
+        <div style="font-size: 18px; margin-bottom: 4px;">⚙️</div>
+        <div>Grind</div>
+      </button>
+      <button style="border: none; padding: 12px; text-align: center; cursor: pointer; color: #B3B3B3; font-size: 11px; background: transparent;">
+        <div style="font-size: 18px; margin-bottom: 4px;">☕</div>
+        <div>Espresso</div>
+      </button>
+      <button style="border: none; padding: 12px; text-align: center; cursor: pointer; color: #B3B3B3; font-size: 11px; background: transparent;">
+        <div style="font-size: 18px; margin-bottom: 4px;">⚖️</div>
+        <div>Scale</div>
+      </button>
+      <button style="border: none; padding: 12px; text-align: center; cursor: pointer; color: #B3B3B3; font-size: 11px; background: transparent;">
+        <div style="font-size: 18px; margin-bottom: 4px;">⏱️</div>
+        <div>Timer</div>
+      </button>
+      <button style="border: none; padding: 12px; text-align: center; cursor: pointer; color: #D4A574; border-top: 3px solid #D4A574; font-size: 11px; font-weight: 600; background: transparent;">
+        <div style="font-size: 18px; margin-bottom: 4px;">📊</div>
+        <div>Brew</div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div style="max-width: 380px; margin: 20px auto; text-align: center;">
+    <button onclick="toggleOrientation()" style="background: #D4A574; color: #1A1A1A; border: none; border-radius: 8px; padding: 10px 16px; font-size: 12px; font-weight: 600; cursor: pointer;">Toggle Portrait/Landscape</button>
+  </div>
+
+</div>
+
+<script>
+let isPortrait = true;
+let currentScreen = 'input'; // 'input' or 'brewing'
+
+function toggleOrientation() {
+  isPortrait = !isPortrait;
+  updateDisplay();
+}
+
+function updateDisplay() {
+  if (currentScreen === 'input') {
+    document.getElementById('inputPhasePortrait').style.display = isPortrait ? 'block' : 'none';
+    document.getElementById('inputPhaseLandscape').style.display = isPortrait ? 'none' : 'block';
+  } else {
+    document.getElementById('brewingPhasePortrait').style.display = isPortrait ? 'block' : 'none';
+    document.getElementById('brewingPhaseLandscape').style.display = isPortrait ? 'none' : 'block';
+  }
+}
+
+function updateRatio() {
+  const ratioValue = parseFloat(document.getElementById('ratioSlider').value || document.getElementById('ratioSliderLandscape').value).toFixed(1);
+  const coffee = 30;
+  const water = (coffee * ratioValue).toFixed(0);
+  
+  document.getElementById('ratioDisplayPortrait').textContent = '1:' + ratioValue;
+  document.getElementById('ratioDisplayLandscape').textContent = '1:' + ratioValue;
+  
+  document.getElementById('waterDisplayPortrait').innerHTML = water + '<span style="font-size: 12px; color: #B3B3B3; font-weight: 400; margin-left: 2px;">g</span>';
+  document.getElementById('waterDisplayLandscape').innerHTML = water + '<span style="font-size: 10px; color: #B3B3B3; margin-left: 2px;">g</span>';
+}
+
+function startBrewing() {
+  currentScreen = 'brewing';
+  updateDisplay();
+  
+  let current = 145;
+  const target = 480;
+  let time = 45;
+  
+  const interval = setInterval(() => {
+    if (current < target) {
+      current += Math.random() * 8;
+      time += 1;
+      if (current > target) current = target;
+    }
+    
+    const minutes = Math.floor(time / 60);
+    const seconds = time % 60;
+    const timeStr = minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
+    document.getElementById('brewTimePortrait').textContent = timeStr;
+    document.getElementById('brewTimeLandscape').textContent = timeStr;
+    
+    const ratio = (current / 30).toFixed(1);
+    document.getElementById('brewRatioPortrait').textContent = '1:' + ratio;
+    document.getElementById('brewRatioLandscape').textContent = '1:' + ratio;
+    
+    const waterStr = Math.round(current);
+    document.getElementById('brewWaterPortrait').innerHTML = waterStr + '<span style="font-size: 12px; color: #B3B3B3; margin-left: 2px;">g</span>';
+    document.getElementById('brewWaterLandscape').innerHTML = waterStr + '<span style="font-size: 10px; color: #B3B3B3; margin-left: 2px;">g</span>';
+    
+    document.getElementById('progressTextPortrait').textContent = waterStr + '/' + target + 'g';
+    document.getElementById('progressTextLandscape').textContent = waterStr + '/' + target + 'g';
+    
+    const percent = (current / target) * 100;
+    document.getElementById('progressBarPortrait').style.width = percent + '%';
+    document.getElementById('progressBarLandscape').style.width = percent + '%';
+    
+    if (current >= target) clearInterval(interval);
+  }, 500);
+}
+
+function stopBrewing() {
+  currentScreen = 'input';
+  updateDisplay();
+}
+</script>
