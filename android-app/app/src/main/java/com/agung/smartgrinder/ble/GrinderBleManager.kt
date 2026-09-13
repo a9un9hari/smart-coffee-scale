@@ -20,6 +20,14 @@ enum class ConnectionState { DISCONNECTED, SCANNING, CONNECTING, CONNECTED }
 private const val DEVICE_NAME = "SmartGrinder"
 private const val OP_TIMEOUT_MS = 4000L
 
+// Matches the firmware's NimBLEDevice::setMTU(247) - default MTU (23 bytes)
+// isn't enough for an OTA WiFi SSID/password/URL write. If the negotiation
+// doesn't complete in time for any reason, MTU_FALLBACK_MS still starts
+// service discovery so the rest of the app (which fits in 20 bytes either
+// way) isn't blocked waiting on it.
+private const val REQUESTED_MTU = 247
+private const val MTU_FALLBACK_MS = 3000L
+
 /**
  * BLE central for the grinder. Talks to the GATT server defined in
  * include/ble.h / src/ble.cpp on the firmware side - see BleProtocol.kt for
@@ -45,6 +53,9 @@ class GrinderBleManager(private val context: Context) {
     private var commandChar: BluetoothGattCharacteristic? = null
     private var cupProfileChar: BluetoothGattCharacteristic? = null
     private var calibrationStatusChar: BluetoothGattCharacteristic? = null
+    private var otaConfigChar: BluetoothGattCharacteristic? = null
+    private var otaStatusChar: BluetoothGattCharacteristic? = null
+    private var servicesDiscoveryStarted = false
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -54,6 +65,9 @@ class GrinderBleManager(private val context: Context) {
 
     private val _calibrationStatus = MutableStateFlow<CalibrationStatus?>(null)
     val calibrationStatus: StateFlow<CalibrationStatus?> = _calibrationStatus.asStateFlow()
+
+    private val _otaStatus = MutableStateFlow<OtaStatus?>(null)
+    val otaStatus: StateFlow<OtaStatus?> = _otaStatus.asStateFlow()
 
     private val opQueue = ArrayDeque<() -> Unit>()
     private var opInFlight = false
@@ -159,14 +173,30 @@ class GrinderBleManager(private val context: Context) {
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> g.discoverServices()
+                BluetoothProfile.STATE_CONNECTED -> {
+                    servicesDiscoveryStarted = false
+                    g.requestMtu(REQUESTED_MTU)
+                    timeoutHandler.postDelayed({ startServiceDiscoveryOnce(g) }, MTU_FALLBACK_MS)
+                }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     _connectionState.value = ConnectionState.DISCONNECTED
                     _status.value = null
+                    _otaStatus.value = null
                     gatt = null
                     resetQueue()
                 }
             }
+        }
+
+        override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
+            startServiceDiscoveryOnce(g)
+        }
+
+        @SuppressLint("MissingPermission")
+        private fun startServiceDiscoveryOnce(g: BluetoothGatt) {
+            if (servicesDiscoveryStarted) return
+            servicesDiscoveryStarted = true
+            g.discoverServices()
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
@@ -175,12 +205,15 @@ class GrinderBleManager(private val context: Context) {
             commandChar = service?.getCharacteristic(GrinderBleUuids.COMMAND)
             cupProfileChar = service?.getCharacteristic(GrinderBleUuids.CUP_PROFILE_QUERY)
             calibrationStatusChar = service?.getCharacteristic(GrinderBleUuids.CALIBRATION_STATUS)
+            otaConfigChar = service?.getCharacteristic(GrinderBleUuids.OTA_CONFIG)
+            otaStatusChar = service?.getCharacteristic(GrinderBleUuids.OTA_STATUS)
 
-            // Both descriptor writes go through the same queue as everything
+            // All descriptor writes go through the same queue as everything
             // else - issuing them back-to-back without waiting for each
-            // callback would silently drop the second one.
+            // callback would silently drop the later ones.
             statusChar?.let { enqueue { enableNotify(g, it) } }
             calibrationStatusChar?.let { enqueue { enableNotify(g, it) } }
+            otaStatusChar?.let { enqueue { enableNotify(g, it) } }
 
             prefs.lastDeviceAddress = g.device.address
             _connectionState.value = ConnectionState.CONNECTED
@@ -250,6 +283,7 @@ class GrinderBleManager(private val context: Context) {
         when (uuid) {
             GrinderBleUuids.STATUS -> decodeStatus(value)?.let { _status.value = it }
             GrinderBleUuids.CALIBRATION_STATUS -> decodeCalibrationStatus(value)?.let { _calibrationStatus.value = it }
+            GrinderBleUuids.OTA_STATUS -> decodeOtaStatus(value)?.let { _otaStatus.value = it }
         }
     }
 
@@ -257,6 +291,20 @@ class GrinderBleManager(private val context: Context) {
     fun calClear() = sendCommand(BleCommand.calClear())
     fun calAddPoint(knownWeightG: Float) = sendCommand(BleCommand.calAddPoint(knownWeightG))
     fun calSave() = sendCommand(BleCommand.calSave())
+
+    fun otaStart() = sendCommand(BleCommand.otaStart())
+    fun otaCancel() = sendCommand(BleCommand.otaCancel())
+
+    fun setOtaSsid(ssid: String) = sendOtaConfig(BleOtaConfig.ssid(ssid))
+    fun setOtaPassword(password: String) = sendOtaConfig(BleOtaConfig.password(password))
+    fun setOtaUrl(url: String) = sendOtaConfig(BleOtaConfig.url(url))
+
+    @SuppressLint("MissingPermission")
+    private fun sendOtaConfig(bytes: ByteArray) {
+        val g = gatt ?: return
+        val ch = otaConfigChar ?: return
+        enqueue { writeChar(g, ch, bytes) }
+    }
 
     @SuppressLint("MissingPermission")
     fun sendCommand(bytes: ByteArray) {

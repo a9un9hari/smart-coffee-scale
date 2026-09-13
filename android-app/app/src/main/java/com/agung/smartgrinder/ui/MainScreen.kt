@@ -42,8 +42,10 @@ fun MainScreen(
     val status by viewModel.status.collectAsState()
     val cupProfiles by viewModel.cupProfiles.collectAsState()
     val calibrationStatus by viewModel.calibrationStatus.collectAsState()
+    val otaStatus by viewModel.otaStatus.collectAsState()
     val shotSamples by viewModel.shotSamples.collectAsState()
     val darkTheme by viewModel.darkTheme.collectAsState()
+    val smoothingAlpha by viewModel.smoothingAlpha.collectAsState()
 
     var autoConnectAttempted by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(permissionsGranted) {
@@ -95,6 +97,8 @@ fun MainScreen(
                     onDisconnect = viewModel::disconnect,
                     darkTheme = darkTheme,
                     onSetDarkTheme = viewModel::setDarkTheme,
+                    smoothingAlpha = smoothingAlpha,
+                    onSetSmoothingAlpha = viewModel::setSmoothingAlpha,
                     currentWeightG = status?.weightG,
                     onTare = viewModel::tare,
                     calPointCount = calibrationStatus?.pointCount ?: 0,
@@ -103,7 +107,10 @@ fun MainScreen(
                     calLastSaveOk = calibrationStatus?.lastSaveOk,
                     onCalAddPoint = viewModel::calAddPoint,
                     onCalClear = viewModel::calClear,
-                    onCalSave = viewModel::calSave
+                    onCalSave = viewModel::calSave,
+                    otaStatus = otaStatus,
+                    onOtaStart = viewModel::otaStart,
+                    onOtaCancel = viewModel::otaCancel
                 )
             }
         }

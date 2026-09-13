@@ -26,9 +26,19 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
         _darkTheme.value = enabled
     }
 
+    private val _smoothingAlpha = MutableStateFlow(prefs.smoothingAlpha)
+    val smoothingAlpha: StateFlow<Float> = _smoothingAlpha.asStateFlow()
+
+    fun setSmoothingAlpha(alpha: Float) {
+        prefs.smoothingAlpha = alpha
+        _smoothingAlpha.value = alpha
+        ble.sendCommand(BleCommand.setSmoothingAlpha(alpha))
+    }
+
     val connectionState: StateFlow<ConnectionState> = ble.connectionState
     val status: StateFlow<GrinderStatus?> = ble.status
     val calibrationStatus: StateFlow<CalibrationStatus?> = ble.calibrationStatus
+    val otaStatus: StateFlow<OtaStatus?> = ble.otaStatus
 
     // Espresso shot graph: recorded from PULL_SHOT through SHOT_COMPLETE, reset
     // when a new pull starts. Sourced entirely from the existing Status
@@ -39,6 +49,16 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
     private var lastState: GrinderState? = null
 
     init {
+        // Firmware doesn't persist the smoothing alpha - reapply the user's
+        // saved preference every time a connection is (re-)established.
+        viewModelScope.launch {
+            ble.connectionState.collect { state ->
+                if (state == ConnectionState.CONNECTED) {
+                    ble.sendCommand(BleCommand.setSmoothingAlpha(_smoothingAlpha.value))
+                }
+            }
+        }
+
         viewModelScope.launch {
             ble.status.collect { s ->
                 val state = s?.state ?: return@collect
@@ -82,6 +102,18 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
     fun calClear() = ble.calClear()
     fun calAddPoint(knownWeightG: Float) = ble.calAddPoint(knownWeightG)
     fun calSave() = ble.calSave()
+
+    // Sent as one shot right before the start command, instead of on every
+    // keystroke - fewer BLE writes, and no risk of the firmware ending up
+    // with a stale/partial value if an intermediate keystroke write is lost
+    // (GrinderBleManager doesn't check write status, see its onCharacteristicWrite).
+    fun otaStart(ssid: String, password: String, url: String) {
+        ble.setOtaSsid(ssid)
+        ble.setOtaPassword(password)
+        ble.setOtaUrl(url)
+        ble.otaStart()
+    }
+    fun otaCancel() = ble.otaCancel()
 
     fun saveCupProfile(id: Int, name: String, cupWeightG: Float, toleranceG: Float) {
         ble.sendCommand(BleCommand.setCupProfileName(id, name))

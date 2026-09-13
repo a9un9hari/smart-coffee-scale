@@ -50,6 +50,8 @@
 #define ESPRESSO_STABLE_MS      3000     // weight stable = shot done
 #define CUP_DETECT_SETTLE_MS    400      // weight must hold near cup profile this long before auto-start
 #define BLE_NOTIFY_INTERVAL_MS  150      // status notify throttle (~6-7Hz)
+#define OTA_NOTIFY_INTERVAL_MS  500      // OTA status notify throttle - slow-moving state, no need for 6-7Hz
+#define OTA_WIFI_CONNECT_TIMEOUT_MS 15000 // give up and report OTA_ERROR_WIFI if WiFi doesn't associate in time
 
 // ============================================================
 // SYSTEM STATE MACHINE

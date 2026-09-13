@@ -19,6 +19,9 @@ void GrinderController::begin() {
     _motor.begin();
     _storage.begin();
     _ble.begin();
+    _ota.begin();
+    _ble.attachOta(&_ota);
+    _ota.setStatusCallback([this]() { _ble.notifyOtaStatus(); });
 
     if (_storage.restore(_calibration)) {
         _scale.setCalibrationFactor(_calibration.scale_factor);
@@ -67,7 +70,7 @@ void GrinderController::readSensors(uint32_t now) {
         _filtered_weight_g = raw_weight;
         _filter_initialized = true;
     } else {
-        _filtered_weight_g += WEIGHT_SMOOTHING_ALPHA * (raw_weight - _filtered_weight_g);
+        _filtered_weight_g += _smoothing_alpha * (raw_weight - _filtered_weight_g);
     }
     _status.current_weight_g = _filtered_weight_g;
 
@@ -173,6 +176,31 @@ void GrinderController::processBleCommands() {
 
             case BLE_OP_CAL_SAVE:
                 handleCalSave();
+                break;
+
+            case BLE_OP_SET_SMOOTHING_ALPHA: {
+                float alpha = cmd.value_a;
+                if (alpha < 0.05f) alpha = 0.05f;
+                if (alpha > 0.9f) alpha = 0.9f;
+                _smoothing_alpha = alpha;
+                break;
+            }
+
+            case BLE_OP_OTA_START:
+                Serial.println("[OTA] BLE_OP_OTA_START received");
+                // Refuse while the motor could be running - OtaManager's WiFi
+                // update is a blocking call once it starts, and would stall
+                // MOTOR_MAX_RUNTIME_MS's safety cutoff if the grinder were mid-shot.
+                if (_status.state == STATE_IDLE || _status.state == STATE_ESPRESSO_IDLE) {
+                    _ota.start();
+                } else {
+                    Serial.printf("[OTA] start refused - state=%d not idle\n", (int)_status.state);
+                }
+                break;
+
+            case BLE_OP_OTA_CANCEL:
+                Serial.println("[OTA] BLE_OP_OTA_CANCEL received");
+                _ota.cancel();
                 break;
 
             default:
@@ -285,5 +313,7 @@ void GrinderController::update() {
     readCupDetect(now);
     processBleCommands();
     runStateMachine(now);
+    _ota.update(); // no-op unless an OTA_START was accepted; blocks this loop only mid-flash
     _ble.notifyStatus(_status, _calibration.active_cup_profile_id); // internally rate-limited
+    _ble.notifyOtaStatus(); // internally rate-limited
 }

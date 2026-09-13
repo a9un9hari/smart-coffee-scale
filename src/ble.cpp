@@ -6,6 +6,8 @@
 #define COMMAND_CHAR_UUID        "c4a10000-1000-4a4a-8a1a-2f5e9b6d0002"
 #define CUP_PROFILE_CHAR_UUID    "c4a10000-1000-4a4a-8a1a-2f5e9b6d0003"
 #define CALIBRATION_STATUS_CHAR_UUID "c4a10000-1000-4a4a-8a1a-2f5e9b6d0004"
+#define OTA_CONFIG_CHAR_UUID     "c4a10000-1000-4a4a-8a1a-2f5e9b6d0005"
+#define OTA_STATUS_CHAR_UUID     "c4a10000-1000-4a4a-8a1a-2f5e9b6d0006"
 
 #pragma pack(push, 1)
 struct BleStatusWire {
@@ -28,6 +30,12 @@ struct BleCalibrationStatusWire {
     uint8_t last_save_ok; // 0/1, only meaningful right after a SAVE
     float last_point_raw;
     float last_point_weight_g;
+};
+
+struct BleOtaStatusWire {
+    uint8_t state;         // OtaState
+    uint8_t progress_percent;
+    int8_t last_error_code; // HTTPUpdate/HTTPClient's own small negative codes
 };
 #pragma pack(pop)
 
@@ -57,8 +65,13 @@ public:
             case BLE_OP_TARE:
             case BLE_OP_CAL_CLEAR:
             case BLE_OP_CAL_SAVE:
+            case BLE_OP_OTA_START:
+            case BLE_OP_OTA_CANCEL:
                 break;
             case BLE_OP_CAL_ADD_POINT:
+                if (raw.size() >= 5) memcpy(&cmd.value_a, raw.data() + 1, 4);
+                break;
+            case BLE_OP_SET_SMOOTHING_ALPHA:
                 if (raw.size() >= 5) memcpy(&cmd.value_a, raw.data() + 1, 4);
                 break;
             case BLE_OP_SELECT_CUP_PROFILE:
@@ -123,6 +136,44 @@ private:
     BleServer *_server;
 };
 
+// Writes: field_id byte (OtaConfigField) + raw string bytes (not fixed-length,
+// not null-terminated on the wire - OtaManager's setters take an explicit
+// length). Kept off the fixed-size BleCommand queue since SSID/password/URL
+// don't fit its 12-byte name field; forwarded straight into OtaManager
+// instead, same pattern as attachCalibration's direct-read path.
+class OtaConfigCallbacks : public NimBLECharacteristicCallbacks {
+public:
+    explicit OtaConfigCallbacks(BleServer *server) : _server(server) {}
+
+    void onWrite(NimBLECharacteristic *characteristic) override {
+        std::string raw = characteristic->getValue();
+        if (raw.empty()) {
+            return;
+        }
+
+        OtaManager *ota = _server->getOta();
+        if (ota == nullptr) {
+            return;
+        }
+
+        uint8_t field_id = (uint8_t)raw[0];
+        const char *data = raw.data() + 1;
+        size_t len = raw.size() - 1;
+
+        Serial.printf("[OTA] config write: field=%d raw_len=%d payload_len=%d\n", field_id, (int)raw.size(), (int)len);
+
+        switch (field_id) {
+            case OTA_FIELD_SSID:     ota->setSsid(data, len);     break;
+            case OTA_FIELD_PASSWORD: ota->setPassword(data, len); break;
+            case OTA_FIELD_URL:      ota->setUrl(data, len);      break;
+            default: break; // unknown field, drop
+        }
+    }
+
+private:
+    BleServer *_server;
+};
+
 // NimBLE stops advertising once a central connects, and does NOT resume it
 // automatically on disconnect - without this, the device becomes invisible
 // to everyone else (or even to the same central reconnecting) the moment
@@ -131,12 +182,22 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     void onDisconnect(NimBLEServer *server) override {
         NimBLEDevice::getAdvertising()->start();
     }
+    void onMTUChange(uint16_t mtu, ble_gap_conn_desc *desc) override {
+        Serial.printf("[BLE] MTU negotiated: %d\n", mtu);
+    }
 };
 
 void BleServer::begin() {
     _command_queue = xQueueCreate(8, sizeof(BleCommand));
 
     NimBLEDevice::init("SmartGrinder");
+
+    // Default MTU (23 bytes) is enough for every existing fixed-size command
+    // frame, but not for an OTA WiFi SSID/password/URL - raised once here so
+    // those writes can span more than one packet. Purely additive: it only
+    // raises the ceiling, so every existing <=20-byte payload still works
+    // unchanged with no negotiation required on the app side for them.
+    NimBLEDevice::setMTU(247);
 
     NimBLEServer *server = NimBLEDevice::createServer();
     server->setCallbacks(new ServerCallbacks());
@@ -158,6 +219,15 @@ void BleServer::begin() {
 
     _calibration_status_char = service->createCharacteristic(
         CALIBRATION_STATUS_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+
+    NimBLECharacteristic *ota_config_char = service->createCharacteristic(
+        OTA_CONFIG_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE);
+    ota_config_char->setCallbacks(new OtaConfigCallbacks(this));
+
+    _ota_status_char = service->createCharacteristic(
+        OTA_STATUS_CHAR_UUID,
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
 
     service->start();
@@ -210,4 +280,28 @@ void BleServer::notifyCalibrationStatus(uint8_t point_count, bool last_save_ok, 
 
     _calibration_status_char->setValue((uint8_t *)&wire, sizeof(wire));
     _calibration_status_char->notify();
+}
+
+void BleServer::notifyOtaStatus() {
+    if (_ota_status_char == nullptr || _ota == nullptr) {
+        return;
+    }
+
+    OtaState state = _ota->getState();
+    bool state_changed = state != _last_notified_ota_state;
+
+    uint32_t now = millis();
+    if (!state_changed && now - _last_ota_notify_ms < OTA_NOTIFY_INTERVAL_MS) {
+        return; // only throttle same-state progress-percent updates
+    }
+    _last_ota_notify_ms = now;
+    _last_notified_ota_state = state;
+
+    BleOtaStatusWire wire;
+    wire.state = (uint8_t)state;
+    wire.progress_percent = _ota->getProgressPercent();
+    wire.last_error_code = _ota->getLastErrorCode();
+
+    _ota_status_char->setValue((uint8_t *)&wire, sizeof(wire));
+    _ota_status_char->notify();
 }

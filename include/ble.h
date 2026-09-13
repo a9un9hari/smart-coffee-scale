@@ -6,6 +6,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include "data_types.h"
+#include "ota.h"
 
 // All ATT payloads kept <=20 bytes so the default BLE MTU (23 bytes total,
 // 20 usable) is always enough - no MTU negotiation needed on either side.
@@ -22,6 +23,16 @@ enum BleOpcode : uint8_t {
     BLE_OP_CAL_CLEAR             = 10, // no payload - discard any in-progress calibration points
     BLE_OP_CAL_ADD_POINT         = 11, // + float known_weight_g - capture current raw ADC paired with this weight
     BLE_OP_CAL_SAVE              = 12, // no payload - least-squares fit over captured points, apply + persist
+    BLE_OP_SET_SMOOTHING_ALPHA   = 13, // + float alpha, clamped [0.05, 0.9] - runtime only, not persisted (the app resends it after every connect)
+    BLE_OP_OTA_START             = 14, // no payload - SSID/password/URL must already be set via OtaConfig characteristic
+    BLE_OP_OTA_CANCEL            = 15, // no payload - only stops an in-progress WiFi connect attempt, see OtaManager::cancel()
+};
+
+// field_id byte prefixing every OtaConfig characteristic write.
+enum OtaConfigField : uint8_t {
+    OTA_FIELD_SSID     = 0,
+    OTA_FIELD_PASSWORD = 1,
+    OTA_FIELD_URL      = 2,
 };
 
 // Parsed form of a Command characteristic write, handed to
@@ -53,6 +64,16 @@ public:
     // calibration session; last_save_ok is only meaningful right after a SAVE.
     void notifyCalibrationStatus(uint8_t point_count, bool last_save_ok, float last_point_raw, float last_point_weight_g);
 
+    // Attach the OtaManager so the OtaConfig characteristic's write callback
+    // can feed SSID/password/URL straight into it (same pattern as
+    // attachCalibration) and notifyOtaStatus() can read its live state.
+    void attachOta(OtaManager *ota) { _ota = ota; }
+    OtaManager *getOta() const { return _ota; }
+    // Rate-limited like notifyStatus(), but a state change always bypasses
+    // the limit - only same-state progress-percent spam during OTA_UPDATING
+    // gets throttled, so the terminal success/error is never the one dropped.
+    void notifyOtaStatus();
+
     // Called by the CupProfileQuery characteristic's write callback to
     // record which profile id a subsequent read should serve.
     void setQueriedProfileId(uint8_t id) { _queried_profile_id = id; }
@@ -63,12 +84,16 @@ public:
 
 private:
     const CalibrationData *_calibration = nullptr;
+    OtaManager *_ota = nullptr;
     QueueHandle_t _command_queue = nullptr;
     uint8_t _queried_profile_id = 0;
     uint32_t _last_notify_ms = 0;
+    uint32_t _last_ota_notify_ms = 0;
+    OtaState _last_notified_ota_state = OTA_IDLE;
 
     NimBLECharacteristic *_status_char = nullptr;
     NimBLECharacteristic *_calibration_status_char = nullptr;
+    NimBLECharacteristic *_ota_status_char = nullptr;
 };
 
 #endif // BLE_H
