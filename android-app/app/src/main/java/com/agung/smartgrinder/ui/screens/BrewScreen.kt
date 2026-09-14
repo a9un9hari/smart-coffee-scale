@@ -1,126 +1,154 @@
 package com.agung.smartgrinder.ui.screens
 
+import android.content.res.Configuration
 import android.os.SystemClock
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.agung.smartgrinder.ble.GrinderStatus
 import com.agung.smartgrinder.ui.components.AppButton
-import com.agung.smartgrinder.ui.components.MiniLineChart
 import com.agung.smartgrinder.ui.components.NeutralOutlinedButton
 import com.agung.smartgrinder.ui.components.SectionCard
-import com.agung.smartgrinder.ui.components.StatBox
-import com.agung.smartgrinder.ui.components.StatGrid
+import com.agung.smartgrinder.ui.components.buildSmoothPath
 import com.agung.smartgrinder.ui.components.computeRate
 import com.agung.smartgrinder.ui.components.formatShotTime
-import com.agung.smartgrinder.ui.theme.CoffeeBrown
 import com.agung.smartgrinder.ui.theme.status
 import kotlinx.coroutines.delay
 
+private val BrewMethodNames = listOf("V60", "French Press", "AeroPress", "Chemex", "Turkish", "Moka Pot")
+
+private const val RATIO_MIN = 5f
+private const val RATIO_MAX = 25f
+private const val RATIO_STEP = 0.5f
+private const val DEFAULT_RATIO = 16f
+private const val DEFAULT_COFFEE_G = 30f
+private const val POUR_FLOW_THRESHOLD_G_PER_S = 0.3f // below this counts as "paused" for segment tagging
+private const val FLOW_MAX_G_PER_S = 6f // chart's flow-line full-scale reference, not a hard cap
+
+private data class BrewSegment(val label: String, val startSec: Float, val endSec: Float, val weightG: Float)
+
 /**
- * One step of a brew method. [targetWeightG] is the cumulative scale reading
- * expected by the end of this phase (null when the phase doesn't involve
- * pouring, e.g. AeroPress's press or a Moka pot brewing on the stove).
- *
- * Numbers sourced from docs/expanded/EXPANDED-MODES-AND-BREW-ASSIST.md's
- * "Multi-Phase Guidance System" section - don't re-derive them from scratch.
+ * Ratio-driven manual brew: no fixed per-method phase durations - the person
+ * brewing sets a ratio, pours however they like, and the app segments the
+ * pour into "Bloom"/"Pour N" after the fact from the flow-rate behavior
+ * (flow drops to ~0, then picks back up = a new segment), rather than
+ * enforcing a schedule. Matches docs/UI/mode/manual_brew.html.
  */
-data class BrewPhase(val name: String, val durationSec: Int, val targetWeightG: Float?, val guidance: String)
-data class BrewMethod(val label: String, val phases: List<BrewPhase>, val flowZoneMlPerS: ClosedFloatingPointRange<Float>?)
-
-val BrewMethods = listOf(
-    BrewMethod(
-        "V60", listOf(
-            BrewPhase("Bloom", 45, 60f, "Pour slowly to saturate the grounds evenly"),
-            BrewPhase("Main Pour", 165, 300f, "Pour steadily, keep flow in the green zone"),
-            BrewPhase("Finish", 30, 500f, "Slow, gentle final pour")
-        ), 3.0f..5.0f
-    ),
-    BrewMethod(
-        "French Press", listOf(
-            BrewPhase("Bloom", 30, 100f, "Initial pour, let it bloom"),
-            BrewPhase("Full", 240, 500f, "Steep and complete the pour")
-        ), 0.5f..2.0f
-    ),
-    BrewMethod(
-        "AeroPress", listOf(
-            BrewPhase("Pour", 60, 200f, "Fill the chamber steadily"),
-            BrewPhase("Press", 30, null, "Plunge slowly and steadily")
-        ), 2.0f..4.0f
-    ),
-    BrewMethod(
-        "Chemex", listOf(
-            BrewPhase("Bloom", 45, 100f, "Pour slowly to saturate the grounds evenly"),
-            BrewPhase("Main Pour", 180, 400f, "Pour steadily in circles"),
-            BrewPhase("Finish", 30, 650f, "Slow, gentle final pour")
-        ), 2.5f..4.0f
-    ),
-    BrewMethod("Turkish", listOf(BrewPhase("Brew", 120, 200f, "Continuous medium heat")), null),
-    BrewMethod("Moka Pot", listOf(BrewPhase("Brew", 600, null, "Watch until coffee comes through")), null),
-)
-
 @Composable
 fun BrewScreen(status: GrinderStatus?) {
-    var method by remember { mutableStateOf<BrewMethod?>(null) }
-    var phaseIndex by remember { mutableStateOf(0) }
-    var isRunning by remember { mutableStateOf(false) }
-    var phaseElapsedMs by remember { mutableStateOf(0L) }
-    var phaseRunStartRealtime by remember { mutableStateOf(0L) }
-    var priorPhasesElapsedSec by remember { mutableStateOf(0f) }
-    var samples by remember { mutableStateOf(listOf<Pair<Float, Float>>()) } // (elapsedSec since brew start, weightG)
+    var methodLabel by remember { mutableStateOf(BrewMethodNames.first()) }
+    var coffeeWeight by remember { mutableStateOf(DEFAULT_COFFEE_G) }
+    var ratio by remember { mutableStateOf(DEFAULT_RATIO) }
+    val waterTargetG = coffeeWeight * ratio
 
-    val currentPhase = method?.phases?.getOrNull(phaseIndex)
-    val brewDone = method != null && phaseIndex >= method!!.phases.size
+    var isBrewing by remember { mutableStateOf(false) }
+    var elapsedMs by remember { mutableStateOf(0L) }
+    var brewStartRealtime by remember { mutableStateOf(0L) }
+    var baselineWeight by remember { mutableStateOf(0f) }
+    var samples by remember { mutableStateOf(listOf<Pair<Float, Float>>()) } // (elapsedSec, pouredWaterG)
+    var segments by remember { mutableStateOf(listOf<BrewSegment>()) }
+    var currentSegmentStart by remember { mutableStateOf<Pair<Float, Float>?>(null) } // (startSec, startWeight) while actively pouring
 
-    fun reset() {
-        phaseIndex = 0
-        isRunning = false
-        phaseElapsedMs = 0L
-        priorPhasesElapsedSec = 0f
-        samples = emptyList()
+    val currentWeight = status?.weightG
+    val pouredWaterG = ((currentWeight ?: 0f) - baselineWeight).coerceAtLeast(0f)
+
+    // Ground coffee tracks the live scale reading while still on Setup -
+    // place the grounds on the scale and the number just follows. It stops
+    // following (freezing at whatever it last read) the moment brewing
+    // starts, since the same weight channel then means water poured, not
+    // coffee.
+    LaunchedEffect(currentWeight, isBrewing) {
+        if (!isBrewing && currentWeight != null) {
+            coffeeWeight = currentWeight
+        }
     }
 
-    // Phase timer + auto-advance
-    LaunchedEffect(isRunning, phaseIndex, method) {
-        val phase = currentPhase ?: return@LaunchedEffect
-        if (isRunning) {
-            phaseRunStartRealtime = SystemClock.elapsedRealtime() - phaseElapsedMs
-            while (isRunning) {
-                phaseElapsedMs = SystemClock.elapsedRealtime() - phaseRunStartRealtime
-                if (phaseElapsedMs / 1000f >= phase.durationSec) {
-                    priorPhasesElapsedSec += phase.durationSec
-                    phaseIndex += 1
-                    phaseElapsedMs = 0L
-                    break
-                }
+    LaunchedEffect(isBrewing) {
+        if (isBrewing) {
+            brewStartRealtime = SystemClock.elapsedRealtime()
+            while (isBrewing) {
+                elapsedMs = SystemClock.elapsedRealtime() - brewStartRealtime
                 delay(100)
             }
         }
     }
 
-    // Sample the weight stream while a brew is running, for the pour-rate chart.
-    val currentWeight = status?.weightG
-    LaunchedEffect(isRunning, currentWeight) {
-        if (isRunning && currentWeight != null) {
-            val t = priorPhasesElapsedSec + phaseElapsedMs / 1000f
-            samples = samples + (t to currentWeight)
+    LaunchedEffect(isBrewing, currentWeight) {
+        if (isBrewing && currentWeight != null) {
+            samples = samples + (elapsedMs / 1000f to pouredWaterG)
         }
     }
 
+    val flowRate = computeRate(samples).lastOrNull()?.second ?: 0f
+
+    // Edge-detects pour segments from the flow-rate history: a segment opens
+    // when flow rises past the threshold and closes (gets its final label,
+    // "Bloom" for the first one, "Pour N" after) when it drops back down.
+    LaunchedEffect(isBrewing, flowRate) {
+        if (!isBrewing) return@LaunchedEffect
+        val t = elapsedMs / 1000f
+        val pouring = flowRate > POUR_FLOW_THRESHOLD_G_PER_S
+        val started = currentSegmentStart
+        if (pouring && started == null) {
+            currentSegmentStart = t to pouredWaterG
+        } else if (!pouring && started != null) {
+            val (startT, startW) = started
+            val label = if (segments.isEmpty()) "Bloom" else "Pour ${segments.size}"
+            segments = segments + BrewSegment(label, startT, t, pouredWaterG - startW)
+            currentSegmentStart = null
+        }
+    }
+
+    fun startBrewing() {
+        baselineWeight = currentWeight ?: 0f
+        elapsedMs = 0L
+        samples = emptyList()
+        segments = emptyList()
+        currentSegmentStart = null
+        isBrewing = true
+    }
+
+    fun stopBrewing() {
+        isBrewing = false
+        currentSegmentStart = null
+    }
+
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val bigReadout = if (isLandscape) 20.sp else 28.sp
+    val ratioReadout = if (isLandscape) 22.sp else 32.sp
+
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-            Text("Manual Brew", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
-            Text("Professional brew guidance", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                if (isBrewing) "Brewing..." else "Manual Brew",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            if (!isBrewing) {
+                Text("Setup & brew", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
 
         if (status == null) {
@@ -128,99 +156,203 @@ fun BrewScreen(status: GrinderStatus?) {
             return@Column
         }
 
-        SectionCard {
-            var expanded by remember { mutableStateOf(false) }
-            Box {
-                NeutralOutlinedButton(method?.label ?: "Select brew method...", onClick = { expanded = true }, modifier = Modifier.fillMaxWidth())
-                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    BrewMethods.forEach { m ->
-                        DropdownMenuItem(text = { Text(m.label) }, onClick = {
-                            method = m
-                            reset()
-                            expanded = false
-                        })
-                    }
-                }
-            }
-        }
-
-        if (method == null) return@Column
-
-        if (brewDone) {
-            SectionCard(label = "Brew complete") {
-                Text("${method!!.label} finished - total ${formatShotTime(priorPhasesElapsedSec)}, ${"%.0f".format(currentWeight ?: 0f)}g in the cup.")
-                AppButton("Start another", onClick = { reset() })
-            }
-            return@Column
-        }
-
-        val phase = currentPhase!!
-        val prevTarget = if (phaseIndex == 0) 0f else method!!.phases[phaseIndex - 1].targetWeightG ?: 0f
-
-        SectionCard(label = "Phase ${phaseIndex + 1} of ${method!!.phases.size}", accent = true) {
-            Text(phase.name, style = MaterialTheme.typography.titleLarge)
-            Text(phase.guidance, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-            StatGrid {
-                StatBox("Target Weight", phase.targetWeightG?.let { "%.0fg".format(it) } ?: "—")
-                StatBox("Time", "${formatShotTime(phaseElapsedMs / 1000f)} / ${formatShotTime(phase.durationSec.toFloat())}")
-            }
-
-            val guidanceBanner = paceGuidance(
-                phase = phase,
-                prevTargetG = prevTarget,
-                elapsedSec = phaseElapsedMs / 1000f,
-                currentWeightG = currentWeight
+        if (!isBrewing) {
+            BrewSetup(
+                methodLabel = methodLabel,
+                onSelectMethod = { methodLabel = it },
+                coffeeWeight = coffeeWeight,
+                ratio = ratio,
+                onRatioChange = { ratio = it },
+                waterTargetG = waterTargetG,
+                bigReadout = bigReadout,
+                ratioReadout = ratioReadout,
+                onStart = { startBrewing() }
             )
-            if (guidanceBanner != null) {
-                val (text, color) = guidanceBanner
-                Box(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(color.copy(alpha = 0.15f)).padding(8.dp)
-                ) {
-                    Text(text, color = color, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                AppButton(
-                    if (isRunning) "⏸ Pause" else "▶ Start",
-                    onClick = { isRunning = !isRunning },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isRunning) MaterialTheme.status.warning else MaterialTheme.status.success
-                    )
-                )
-                NeutralOutlinedButton(
-                    "Skip phase",
-                    onClick = {
-                        priorPhasesElapsedSec += phase.durationSec
-                        phaseIndex += 1
-                        phaseElapsedMs = 0L
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        SectionCard(label = "Pour rate") {
-            MiniLineChart(points = computeRate(samples), lineColor = CoffeeBrown, emptyLabel = "Start the brew to see pour rate")
+        } else {
+            BrewLive(
+                elapsedMs = elapsedMs,
+                liveRatio = if (coffeeWeight > 0f) pouredWaterG / coffeeWeight else 0f,
+                pouredWaterG = pouredWaterG,
+                waterTargetG = waterTargetG,
+                samples = samples,
+                segments = segments,
+                bigReadout = bigReadout,
+                ratioReadout = ratioReadout,
+                onStop = { stopBrewing() }
+            )
         }
     }
 }
 
-/** Compares actual cumulative weight against the phase's expected pace and returns a (message, color) banner, or null when there's nothing to say. */
 @Composable
-private fun paceGuidance(phase: BrewPhase, prevTargetG: Float, elapsedSec: Float, currentWeightG: Float?): Pair<String, androidx.compose.ui.graphics.Color>? {
-    val target = phase.targetWeightG ?: return null
-    val weight = currentWeightG ?: return null
-    val timeRatio = (elapsedSec / phase.durationSec).coerceIn(0f, 1f)
-    val expected = prevTargetG + (target - prevTargetG) * timeRatio
-    val tolerance = (target - prevTargetG) * 0.15f
-    val delta = weight - expected
+private fun BrewSetup(
+    methodLabel: String,
+    onSelectMethod: (String) -> Unit,
+    coffeeWeight: Float,
+    ratio: Float,
+    onRatioChange: (Float) -> Unit,
+    waterTargetG: Float,
+    bigReadout: TextUnit,
+    ratioReadout: TextUnit,
+    onStart: () -> Unit
+) {
+    var methodExpanded by remember { mutableStateOf(false) }
+    Column {
+        Text("Brew method", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(8.dp))
+        Box {
+            NeutralOutlinedButton(methodLabel, onClick = { methodExpanded = true }, modifier = Modifier.fillMaxWidth())
+            DropdownMenu(expanded = methodExpanded, onDismissRequest = { methodExpanded = false }) {
+                BrewMethodNames.forEach { name ->
+                    DropdownMenuItem(text = { Text(name) }, onClick = { onSelectMethod(name); methodExpanded = false })
+                }
+            }
+        }
+    }
 
-    return when {
-        delta > tolerance -> "Pouring too fast" to MaterialTheme.status.warning
-        delta < -tolerance -> "Pouring too slow" to MaterialTheme.status.warning
-        else -> "On pace" to MaterialTheme.status.success
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(12.dp)
+    ) {
+        Text(
+            "💡 Insert your ground coffee - the reading below follows the scale live",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    SectionCard {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            LabeledReadout("COFFEE", "%.0fg".format(coffeeWeight), bigReadout, MaterialTheme.colorScheme.onSurface)
+            LabeledReadout("RATIO", "1:%.1f".format(ratio), ratioReadout, MaterialTheme.colorScheme.primary)
+            LabeledReadout("WATER", "%.0fg".format(waterTargetG), bigReadout, MaterialTheme.colorScheme.primary)
+        }
+        Spacer(Modifier.height(12.dp))
+        Slider(value = ratio, onValueChange = onRatioChange, valueRange = RATIO_MIN..RATIO_MAX, steps = ((RATIO_MAX - RATIO_MIN) / RATIO_STEP).toInt() - 1)
+        Text(
+            "↑ Adjust ratio ↓",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+
+    AppButton("▶ Start Brewing", onClick = onStart, modifier = Modifier.fillMaxWidth())
+}
+
+@Composable
+private fun BrewLive(
+    elapsedMs: Long,
+    liveRatio: Float,
+    pouredWaterG: Float,
+    waterTargetG: Float,
+    samples: List<Pair<Float, Float>>,
+    segments: List<BrewSegment>,
+    bigReadout: TextUnit,
+    ratioReadout: TextUnit,
+    onStop: () -> Unit
+) {
+    SectionCard {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            LabeledReadout("TIME", formatShotTime(elapsedMs / 1000f), bigReadout, MaterialTheme.colorScheme.onSurface)
+            LabeledReadout("RATIO", "1:%.1f".format(liveRatio), ratioReadout, MaterialTheme.colorScheme.primary)
+            LabeledReadout("WATER", "%.0fg".format(pouredWaterG), bigReadout, MaterialTheme.colorScheme.primary)
+        }
+    }
+
+    Column {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Progress", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "%.0f/%.0fg".format(pouredWaterG, waterTargetG),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        LinearProgressIndicator(
+            progress = { if (waterTargetG > 0f) (pouredWaterG / waterTargetG).coerceIn(0f, 1f) else 0f },
+            modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(6.dp))
+        )
+    }
+
+    SectionCard(label = "Weight & flow") {
+        WeightFlowChart(samples = samples, waterTargetG = waterTargetG)
+    }
+
+    SectionCard(label = "Segments") {
+        if (segments.isEmpty()) {
+            Text("No segment detected yet - pour, then pause briefly to close one.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            segments.forEachIndexed { i, seg ->
+                val color = if (i == 0) MaterialTheme.status.success else MaterialTheme.status.warning
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Box(modifier = Modifier.width(3.dp).fillMaxHeight().background(color))
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Text(seg.label, color = color, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "${formatShotTime(seg.startSec)}-${formatShotTime(seg.endSec)} • %.0fg".format(seg.weightG),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    NeutralOutlinedButton("⏹ Stop", onClick = onStop, modifier = Modifier.fillMaxWidth())
+}
+
+@Composable
+private fun LabeledReadout(label: String, value: String, fontSize: TextUnit, color: Color) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(6.dp))
+        Text(value, fontSize = fontSize, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace, color = color)
+    }
+}
+
+/** Two independently-normalized lines (cumulative water in amber, flow rate in cyan) sharing one canvas - visual pattern matters more than a shared absolute scale. */
+@Composable
+private fun WeightFlowChart(samples: List<Pair<Float, Float>>, waterTargetG: Float) {
+    if (samples.size < 2) {
+        Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+            Text("Start pouring to see weight & flow", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
+
+    val weightColor = MaterialTheme.colorScheme.primary
+    val flowColor = MaterialTheme.status.success
+    val gridColor = MaterialTheme.colorScheme.outlineVariant
+
+    val maxT = samples.last().first.coerceAtLeast(1f)
+    val maxWeight = waterTargetG.coerceAtLeast(samples.maxOf { it.second }).coerceAtLeast(1f)
+    val flowSamples = computeRate(samples)
+
+    Canvas(modifier = Modifier.fillMaxWidth().height(100.dp)) {
+        val steps = 3
+        for (i in 0..steps) {
+            val y = size.height * (1f - i.toFloat() / steps)
+            drawLine(gridColor.copy(alpha = 0.4f), Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
+        }
+
+        val weightOffsets = samples.map { (t, w) -> Offset((t / maxT) * size.width, size.height - (w / maxWeight).coerceIn(0f, 1f) * size.height) }
+        drawPath(buildSmoothPath(weightOffsets), color = weightColor, style = Stroke(width = 4f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+
+        if (flowSamples.size >= 2) {
+            val flowOffsets = flowSamples.map { (t, r) -> Offset((t / maxT) * size.width, size.height - (r.coerceAtLeast(0f) / FLOW_MAX_G_PER_S).coerceIn(0f, 1f) * size.height) }
+            drawPath(buildSmoothPath(flowOffsets), color = flowColor, style = Stroke(width = 3f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
     }
 }
