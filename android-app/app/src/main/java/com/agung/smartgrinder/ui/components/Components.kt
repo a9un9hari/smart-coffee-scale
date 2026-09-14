@@ -180,9 +180,14 @@ fun AxisLabels(maxValue: Float, alignEnd: Boolean, modifier: Modifier = Modifier
         verticalArrangement = Arrangement.SpaceBetween,
         horizontalAlignment = if (alignEnd) Alignment.End else Alignment.Start
     ) {
+        // A small-scale chart (e.g. a shot that barely moved the scale) needs
+        // decimal places, or every step rounds to the same "0"/"1" and the
+        // axis stops meaning anything - a chart already spanning double
+        // digits doesn't need the extra digit of noise.
+        val format = if (maxValue < 10f) "%.1f" else "%.0f"
         val steps = 4
         for (i in steps downTo 0) {
-            Text("%.0f".format(maxValue * i / steps), style = MaterialTheme.typography.labelSmall)
+            Text(format.format(maxValue * i / steps), style = MaterialTheme.typography.labelSmall)
         }
     }
 }
@@ -207,18 +212,24 @@ fun buildSmoothPath(points: List<Offset>): Path {
     return path
 }
 
-/** Derives a smoothed rate-of-change (unit/s) series from raw cumulative samples via finite differences. */
-fun computeRate(samples: List<Pair<Float, Float>>, smoothWindow: Int = 6): List<Pair<Float, Float>> {
+/**
+ * Derives a rate-of-change (unit/s) series from raw cumulative samples.
+ * Differences against a sample up to [smoothWindow] steps back (fewer near
+ * the start) rather than always the immediately-previous one - a lone pair
+ * of samples that happened to land close together in time (BLE notify
+ * jitter, not a real event) no longer produces an amplified spike, since
+ * the effective dt only shrinks to that if there's no more history yet.
+ * dt below [minDeltaSec] is treated as "too close to trust" and reports 0
+ * rather than dividing by a near-zero denominator.
+ */
+fun computeRate(samples: List<Pair<Float, Float>>, smoothWindow: Int = 6, minDeltaSec: Float = 0.08f): List<Pair<Float, Float>> {
     if (samples.size < 2) return emptyList()
-    val raw = (1 until samples.size).map { i ->
-        val (t0, v0) = samples[i - 1]
+    return (1 until samples.size).map { i ->
+        val lookback = (i - smoothWindow).coerceAtLeast(0)
+        val (t0, v0) = samples[lookback]
         val (t1, v1) = samples[i]
         val dt = t1 - t0
-        t1 to (if (dt > 0.01f) (v1 - v0) / dt else 0f)
-    }
-    return raw.mapIndexed { i, (t, _) ->
-        val start = (i - smoothWindow + 1).coerceAtLeast(0)
-        t to raw.subList(start, i + 1).map { it.second }.average().toFloat()
+        t1 to (if (dt > minDeltaSec) (v1 - v0) / dt else 0f)
     }
 }
 
