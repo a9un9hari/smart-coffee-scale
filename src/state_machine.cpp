@@ -21,6 +21,7 @@ static bool isMotorState(SystemState s) {
 
 void StateMachine::transitionTo(SystemState new_state) {
     SystemState old_state = _status->state;
+    Serial.printf("[SM] transition %d -> %d (weight=%.2f)\n", (int)old_state, (int)new_state, _status->current_weight_g);
     _status->state = new_state;
     _status->state_entered_ms = millis();
 

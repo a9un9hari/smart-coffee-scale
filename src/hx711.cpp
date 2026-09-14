@@ -71,17 +71,31 @@ long HX711::readRaw() {
     return value;
 }
 
+long HX711::medianOf(long *values, uint8_t count) {
+    // Insertion sort - count is always <= AVG_SAMPLES (5), not worth a
+    // fancier algorithm.
+    for (uint8_t i = 1; i < count; i++) {
+        long key = values[i];
+        uint8_t j = i;
+        while (j > 0 && values[j - 1] > key) {
+            values[j] = values[j - 1];
+            j--;
+        }
+        values[j] = key;
+    }
+    return (count % 2 == 1) ? values[count / 2] : (values[count / 2 - 1] + values[count / 2]) / 2;
+}
+
 float HX711::readWeight() {
-    long sum = 0;
+    long readings[AVG_SAMPLES];
     uint8_t got = 0;
 
     for (uint8_t i = 0; i < AVG_SAMPLES; i++) {
         if (!waitReady()) {
-            // one bad sample: skip it, don't fail the whole average
+            // one bad sample: skip it, don't fail the whole batch
             continue;
         }
-        sum += readRawInternal();
-        got++;
+        readings[got++] = readRawInternal();
     }
 
     if (got == 0) {
@@ -89,7 +103,11 @@ float HX711::readWeight() {
         return 0.0f;
     }
 
-    long avg_raw = sum / got;
+    // Median, not mean - resistant to the occasional single corrupted raw
+    // read (e.g. electrical noise from the SSR motor relay switching right
+    // as a shot starts) that a plain average would let through as a visible
+    // spike in the weight/flow-rate graph.
+    long avg_raw = medianOf(readings, got);
     _last_avg_raw = avg_raw;
     float weight_g = (float)(avg_raw - _offset) * _scale_factor;
 
@@ -103,19 +121,18 @@ float HX711::readWeight() {
 }
 
 void HX711::tare() {
-    long sum = 0;
+    long readings[AVG_SAMPLES];
     uint8_t got = 0;
 
     for (uint8_t i = 0; i < AVG_SAMPLES; i++) {
         if (!waitReady()) {
             continue;
         }
-        sum += readRawInternal();
-        got++;
+        readings[got++] = readRawInternal();
     }
 
     if (got > 0) {
-        _offset = sum / got;
+        _offset = medianOf(readings, got);
         _status = HX711_OK;
     } else {
         _status = HX711_DISCONNECTED;

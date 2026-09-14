@@ -44,6 +44,7 @@ private:
 
     bool waitReady();      // wait for DOUT low (data ready), false on timeout
     long readRawInternal(); // one bit-bang read, no averaging/offset/scale
+    static long medianOf(long *values, uint8_t count); // sorts values in place
 };
 
 #endif // HX711_H

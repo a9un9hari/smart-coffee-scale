@@ -121,10 +121,14 @@ void GrinderController::processBleCommands() {
                 break;
 
             case BLE_OP_SET_MODE:
+                Serial.printf("[MODE] SET_MODE requested=%d current_mode=%d current_state=%d\n",
+                    (int)cmd.mode, (int)_status.mode, (int)_status.state);
                 _state_machine.onModeCommand((SystemMode)cmd.mode);
+                Serial.printf("[MODE] after: mode=%d state=%d\n", (int)_status.mode, (int)_status.state);
                 break;
 
             case BLE_OP_START:
+                Serial.printf("[CTRL] BLE_OP_START mode=%d state=%d\n", (int)_status.mode, (int)_status.state);
                 _state_machine.onEvent(EVT_BLE_START);
                 break;
 
