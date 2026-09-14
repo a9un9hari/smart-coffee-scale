@@ -149,7 +149,7 @@ fun MainScreen(
                     onEStop = viewModel::emergencyStop
                 )
                 Tab.SCALE -> ScaleScreen(status = status, onTare = viewModel::tare)
-                Tab.TIMER -> TimerScreen(status = status)
+                Tab.TIMER -> TimerScreen(status = status, onTare = viewModel::tare)
                 Tab.BREW -> BrewScreen(status = status)
             }
         }
