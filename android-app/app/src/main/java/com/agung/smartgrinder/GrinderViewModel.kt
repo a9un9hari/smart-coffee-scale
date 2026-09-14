@@ -5,7 +5,9 @@ import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.agung.smartgrinder.ble.*
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -17,6 +19,7 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
 
     private val ble = GrinderBleManager(application)
     private val prefs = AppPreferences(application)
+    private val shotLogger = ShotLogger(application)
 
     private val _darkTheme = MutableStateFlow(prefs.darkTheme)
     val darkTheme: StateFlow<Boolean> = _darkTheme.asStateFlow()
@@ -48,6 +51,13 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
     private var shotStartElapsedMs = 0L
     private var lastState: GrinderState? = null
 
+    // Fired right after a completed shot is written to the log, carrying
+    // the same timestamp used as its record's key - MainActivity uses this
+    // to capture a matching screenshot (PixelCopy needs an Activity/Window,
+    // not available from a ViewModel), named to line up with the log entry.
+    private val _shotCompletedEvents = MutableSharedFlow<Long>(extraBufferCapacity = 1)
+    val shotCompletedEvents: SharedFlow<Long> = _shotCompletedEvents
+
     init {
         // Firmware doesn't persist the smoothing alpha - reapply the user's
         // saved preference every time a connection is (re-)established.
@@ -70,6 +80,10 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
                 if (state == GrinderState.PULL_SHOT || state == GrinderState.PULLING) {
                     val t = (SystemClock.elapsedRealtime() - shotStartElapsedMs) / 1000f
                     _shotSamples.value = _shotSamples.value + ShotSample(t, s.weightG)
+                }
+                if (state == GrinderState.SHOT_COMPLETE && lastState != GrinderState.SHOT_COMPLETE) {
+                    val timestamp = shotLogger.logShot(s.targetWeightG, s.weightG, _shotSamples.value)
+                    _shotCompletedEvents.tryEmit(timestamp)
                 }
                 lastState = state
             }
