@@ -14,10 +14,12 @@ import androidx.compose.ui.unit.dp
 import com.agung.smartgrinder.ble.ConnectionState
 import com.agung.smartgrinder.ble.OtaState
 import com.agung.smartgrinder.ble.OtaStatus
+import com.agung.smartgrinder.ble.WeightSource
 import com.agung.smartgrinder.ble.otaErrorHint
 import com.agung.smartgrinder.ui.components.AppButton
 import com.agung.smartgrinder.ui.components.NeutralOutlinedButton
 import com.agung.smartgrinder.ui.components.SectionCard
+import com.agung.smartgrinder.ui.components.ToggleChip
 import com.agung.smartgrinder.ui.theme.status
 
 @Composable
@@ -29,6 +31,12 @@ fun SettingsScreen(
     onSetDarkTheme: (Boolean) -> Unit,
     smoothingAlpha: Float,
     onSetSmoothingAlpha: (Float) -> Unit,
+    timemoreAutoConnect: Boolean,
+    onSetTimemoreAutoConnect: (Boolean) -> Unit,
+    timemoreConnected: Boolean,
+    weightSource: WeightSource,
+    onSetWeightSource: (WeightSource) -> Unit,
+    hx711Detected: Boolean,
     currentWeightG: Float?,
     onTare: () -> Unit,
     calPointCount: Int,
@@ -105,6 +113,50 @@ fun SettingsScreen(
             }
         }
 
+        item {
+            SectionCard(label = "Timemore Dot") {
+                Text("Weight source", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Which sensor the grinder actually weighs from - switches everywhere in the app (Grind, Timer, Brew, Scale), not just here. Not saved on the grinder, re-applied every time the app connects.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    ToggleChip(
+                        label = "Load cell",
+                        selected = weightSource == WeightSource.HX711,
+                        onClick = { onSetWeightSource(WeightSource.HX711) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ToggleChip(
+                        label = "Timemore Dot",
+                        selected = weightSource == WeightSource.TIMEMORE,
+                        onClick = { onSetWeightSource(WeightSource.TIMEMORE) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Auto-connect", style = MaterialTheme.typography.titleMedium)
+                    Switch(checked = timemoreAutoConnect, onCheckedChange = onSetTimemoreAutoConnect)
+                }
+                Text(
+                    "On by default: the grinder scans for a Timemore Dot on its own as soon as it boots, no action needed here. Turn off if you don't have one, or don't want it woken up right now - not saved on the grinder, re-applied automatically every time the app connects.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (timemoreAutoConnect) {
+                    Text(
+                        if (timemoreConnected) "Connected" else "Not connected",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (timemoreConnected) MaterialTheme.status.success else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
         if (connectionState == ConnectionState.CONNECTED) {
             item {
                 OtaSection(
@@ -124,19 +176,36 @@ fun SettingsScreen(
             }
         }
 
-        item {
-            CalibrationSection(
-                pointCount = calPointCount,
-                lastPointRaw = calLastPointRaw,
-                lastPointWeightG = calLastPointWeightG,
-                lastSaveOk = calLastSaveOk,
-                onAddPoint = onCalAddPoint,
-                onClear = onCalClear,
-                onSave = onCalSave
-            )
-        }
+        // Both sections below work directly against the HX711 (raw ADC reads,
+        // mechanical mounting checks) regardless of which weightSource is
+        // currently selected - meaningless, and potentially destructive to
+        // the load cell's saved calibration, when it isn't actually wired up
+        // (e.g. running Timemore-Dot-only for a while).
+        if (hx711Detected) {
+            item {
+                CalibrationSection(
+                    pointCount = calPointCount,
+                    lastPointRaw = calLastPointRaw,
+                    lastPointWeightG = calLastPointWeightG,
+                    lastSaveOk = calLastSaveOk,
+                    onAddPoint = onCalAddPoint,
+                    onClear = onCalClear,
+                    onSave = onCalSave
+                )
+            }
 
-        item { CornerCheckSection(currentWeightG = currentWeightG) }
+            item { CornerCheckSection(currentWeightG = currentWeightG) }
+        } else {
+            item {
+                SectionCard {
+                    Text(
+                        "Load cell not detected - calibration and corner-check are hidden until it's wired up again.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
     }
 }
 

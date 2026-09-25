@@ -15,11 +15,32 @@ import kotlinx.coroutines.launch
 /** One (elapsed seconds since pull started, weight in grams) sample for the shot graph. */
 data class ShotSample(val tSeconds: Float, val weightG: Float)
 
+/** One (elapsed seconds since brew started, poured water in grams) sample for the brew graph. */
+data class BrewLogSample(val tSeconds: Float, val weightG: Float)
+
+/** One auto-tagged pour segment ("Bloom", "Pour N") from BrewScreen's flow-rate edge detection. */
+data class BrewLogSegment(val label: String, val startSec: Float, val endSec: Float, val weightG: Float)
+
+/** Everything BrewScreen knows about one completed manual brew, handed up for logging on Stop. */
+data class BrewLogData(
+    val methodLabel: String,
+    val coffeeWeightG: Float,
+    val ratio: Float,
+    val waterTargetG: Float,
+    val finalWaterG: Float,
+    val durationSec: Float,
+    val samples: List<BrewLogSample>,
+    val segments: List<BrewLogSegment>
+)
+
 class GrinderViewModel(application: Application) : AndroidViewModel(application) {
 
     private val ble = GrinderBleManager(application)
     private val prefs = AppPreferences(application)
     private val shotLogger = ShotLogger(application)
+    private val brewLogger = BrewLogger(application)
+
+    fun logBrew(data: BrewLogData) = brewLogger.logBrew(data)
 
     private val _darkTheme = MutableStateFlow(prefs.darkTheme)
     val darkTheme: StateFlow<Boolean> = _darkTheme.asStateFlow()
@@ -36,6 +57,24 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
         prefs.smoothingAlpha = alpha
         _smoothingAlpha.value = alpha
         ble.sendCommand(BleCommand.setSmoothingAlpha(alpha))
+    }
+
+    private val _weightSource = MutableStateFlow(prefs.weightSource)
+    val weightSource: StateFlow<WeightSource> = _weightSource.asStateFlow()
+
+    fun setWeightSource(source: WeightSource) {
+        prefs.weightSource = source
+        _weightSource.value = source
+        ble.sendCommand(BleCommand.setWeightSource(source))
+    }
+
+    private val _timemoreAutoConnect = MutableStateFlow(prefs.timemoreAutoConnect)
+    val timemoreAutoConnect: StateFlow<Boolean> = _timemoreAutoConnect.asStateFlow()
+
+    fun setTimemoreAutoConnect(enabled: Boolean) {
+        prefs.timemoreAutoConnect = enabled
+        _timemoreAutoConnect.value = enabled
+        ble.sendCommand(BleCommand.setTimemoreAutoConnect(enabled))
     }
 
     val connectionState: StateFlow<ConnectionState> = ble.connectionState
@@ -65,6 +104,8 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
             ble.connectionState.collect { state ->
                 if (state == ConnectionState.CONNECTED) {
                     ble.sendCommand(BleCommand.setSmoothingAlpha(_smoothingAlpha.value))
+                    ble.sendCommand(BleCommand.setWeightSource(_weightSource.value))
+                    ble.sendCommand(BleCommand.setTimemoreAutoConnect(_timemoreAutoConnect.value))
                 }
             }
         }

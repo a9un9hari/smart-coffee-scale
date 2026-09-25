@@ -21,8 +21,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agung.smartgrinder.ble.GrinderStatus
+import com.agung.smartgrinder.ble.WeightSource
 import com.agung.smartgrinder.ui.components.AppButton
 import com.agung.smartgrinder.ui.components.SectionCard
+import com.agung.smartgrinder.ui.components.ToggleChip
 import com.agung.smartgrinder.ui.components.computeRate
 import com.agung.smartgrinder.ui.theme.status
 
@@ -36,7 +38,7 @@ private const val FLOW_RATE_MAX_G_PER_S = 6f // bar's full-scale reference, not 
  * mode is currently active.
  */
 @Composable
-fun ScaleScreen(status: GrinderStatus?, onTare: () -> Unit) {
+fun ScaleScreen(status: GrinderStatus?, onTare: () -> Unit, onSetWeightSource: (WeightSource) -> Unit) {
     var samples by remember { mutableStateOf(listOf<Pair<Float, Float>>()) } // (elapsedSec, weightG)
     val startRealtime = remember { SystemClock.elapsedRealtime() }
 
@@ -119,6 +121,28 @@ fun ScaleScreen(status: GrinderStatus?, onTare: () -> Unit) {
                     FlowRateBar(flowRate)
                 }
             }
+        }
+
+        SectionCard(label = "Weight source") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                ToggleChip(
+                    label = "Load cell",
+                    selected = status.weightSource == WeightSource.HX711,
+                    onClick = { onSetWeightSource(WeightSource.HX711) },
+                    modifier = Modifier.weight(1f)
+                )
+                ToggleChip(
+                    label = "Timemore Dot",
+                    selected = status.weightSource == WeightSource.TIMEMORE,
+                    onClick = { onSetWeightSource(WeightSource.TIMEMORE) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Text(
+                if (status.timemoreConnected) "Timemore Dot connected" else "Timemore Dot not connected",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (status.timemoreConnected) MaterialTheme.status.success else MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         Row(

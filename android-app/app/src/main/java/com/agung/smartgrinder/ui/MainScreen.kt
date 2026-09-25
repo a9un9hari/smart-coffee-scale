@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.sp
 import com.agung.smartgrinder.GrinderViewModel
 import com.agung.smartgrinder.ble.ConnectionState
 import com.agung.smartgrinder.ble.GrinderMode
+import com.agung.smartgrinder.ble.WeightSource
 import com.agung.smartgrinder.ui.components.AppButton
 import com.agung.smartgrinder.ui.screens.*
 import com.agung.smartgrinder.ui.theme.status
@@ -46,6 +47,7 @@ fun MainScreen(
     val shotSamples by viewModel.shotSamples.collectAsState()
     val darkTheme by viewModel.darkTheme.collectAsState()
     val smoothingAlpha by viewModel.smoothingAlpha.collectAsState()
+    val timemoreAutoConnect by viewModel.timemoreAutoConnect.collectAsState()
 
     var autoConnectAttempted by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(permissionsGranted) {
@@ -99,6 +101,12 @@ fun MainScreen(
                     onSetDarkTheme = viewModel::setDarkTheme,
                     smoothingAlpha = smoothingAlpha,
                     onSetSmoothingAlpha = viewModel::setSmoothingAlpha,
+                    timemoreAutoConnect = timemoreAutoConnect,
+                    onSetTimemoreAutoConnect = viewModel::setTimemoreAutoConnect,
+                    timemoreConnected = status?.timemoreConnected ?: false,
+                    weightSource = status?.weightSource ?: WeightSource.HX711,
+                    onSetWeightSource = viewModel::setWeightSource,
+                    hx711Detected = status?.hx711Detected ?: true,
                     currentWeightG = status?.weightG,
                     onTare = viewModel::tare,
                     calPointCount = calibrationStatus?.pointCount ?: 0,
@@ -148,7 +156,7 @@ fun MainScreen(
                     onStop = viewModel::stop,
                     onEStop = viewModel::emergencyStop
                 )
-                Tab.SCALE -> ScaleScreen(status = status, onTare = viewModel::tare)
+                Tab.SCALE -> ScaleScreen(status = status, onTare = viewModel::tare, onSetWeightSource = viewModel::setWeightSource)
                 Tab.TIMER -> TimerScreen(status = status, onTare = viewModel::tare)
                 Tab.BREW -> BrewScreen(status = status)
             }

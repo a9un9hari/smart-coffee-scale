@@ -46,13 +46,26 @@ enum class GrinderState(val wireValue: Int, val label: String) {
     }
 }
 
+enum class WeightSource(val wireValue: Int, val label: String) {
+    HX711(0, "Load cell"),
+    TIMEMORE(1, "Timemore Dot");
+
+    companion object {
+        fun fromWire(v: Int) = entries.firstOrNull { it.wireValue == v } ?: HX711
+    }
+}
+
 data class GrinderStatus(
     val weightG: Float,
     val targetWeightG: Float,
     val mode: GrinderMode,
     val state: GrinderState,
     val errorCode: Int,
-    val activeCupProfileId: Int
+    val activeCupProfileId: Int,
+    val weightSource: WeightSource,
+    val timemoreConnected: Boolean,
+    val timemoreAutoConnect: Boolean,
+    val hx711Detected: Boolean
 )
 
 data class CupProfile(
@@ -63,9 +76,9 @@ data class CupProfile(
     val isConfigured: Boolean get() = cupWeightG >= 0f
 }
 
-/** Parses a 12-byte Status characteristic notification/read. Null if malformed. */
+/** Parses a 16-byte Status characteristic notification/read. Null if malformed. */
 fun decodeStatus(bytes: ByteArray): GrinderStatus? {
-    if (bytes.size < 12) return null
+    if (bytes.size < 16) return null
     val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
     val weight = buf.float
     val target = buf.float
@@ -73,7 +86,14 @@ fun decodeStatus(bytes: ByteArray): GrinderStatus? {
     val state = buf.get().toInt() and 0xFF
     val error = buf.get().toInt() and 0xFF
     val activeCup = buf.get().toInt() and 0xFF
-    return GrinderStatus(weight, target, GrinderMode.fromWire(mode), GrinderState.fromWire(state), error, activeCup)
+    val weightSource = buf.get().toInt() and 0xFF
+    val timemoreConnected = (buf.get().toInt() and 0xFF) != 0
+    val timemoreAutoConnect = (buf.get().toInt() and 0xFF) != 0
+    val hx711Detected = (buf.get().toInt() and 0xFF) != 0
+    return GrinderStatus(
+        weight, target, GrinderMode.fromWire(mode), GrinderState.fromWire(state), error, activeCup,
+        WeightSource.fromWire(weightSource), timemoreConnected, timemoreAutoConnect, hx711Detected
+    )
 }
 
 /** Parses a 20-byte CupProfileQuery read response. Null if malformed. */
@@ -177,6 +197,8 @@ object BleCommand {
     private const val OP_SET_SMOOTHING_ALPHA: Int = 13
     private const val OP_OTA_START: Int = 14
     private const val OP_OTA_CANCEL: Int = 15
+    private const val OP_SET_WEIGHT_SOURCE: Int = 16
+    private const val OP_SET_TIMEMORE_AUTOCONNECT: Int = 17
 
     fun setTargetWeight(grams: Float): ByteArray =
         ByteBuffer.allocate(5).order(ByteOrder.LITTLE_ENDIAN)
@@ -226,6 +248,14 @@ object BleCommand {
 
     /** Only stops an in-progress WiFi connect attempt - can't interrupt an update already flashing. */
     fun otaCancel(): ByteArray = byteArrayOf(OP_OTA_CANCEL.toByte())
+
+    /** Not persisted on the firmware side - resend after every connect (GrinderViewModel does this). */
+    fun setWeightSource(source: WeightSource): ByteArray =
+        byteArrayOf(OP_SET_WEIGHT_SOURCE.toByte(), source.wireValue.toByte())
+
+    /** Not persisted on the firmware side - resend after every connect (GrinderViewModel does this). */
+    fun setTimemoreAutoConnect(enabled: Boolean): ByteArray =
+        byteArrayOf(OP_SET_TIMEMORE_AUTOCONNECT.toByte(), if (enabled) 1 else 0)
 }
 
 /**
