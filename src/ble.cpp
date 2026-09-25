@@ -17,6 +17,10 @@ struct BleStatusWire {
     uint8_t state;
     uint8_t error_code;
     uint8_t active_cup_profile_id;
+    uint8_t weight_source;      // WeightSource - which sensor current_weight_g came from
+    uint8_t timemore_connected; // 0/1 - Timemore Dot BLE central link state, independent of weight_source
+    uint8_t timemore_autoconnect; // 0/1 - whether TimemoreScale's scan+reconnect loop is enabled
+    uint8_t hx711_detected;       // 0/1 - whether the load cell is physically wired up
 };
 
 struct BleCupProfileWire {
@@ -51,6 +55,7 @@ public:
 
         BleCommand cmd = {};
         cmd.opcode = (uint8_t)raw[0];
+        Serial.printf("[BLE] command write received: opcode=%d len=%d\n", cmd.opcode, (int)raw.size());
 
         switch (cmd.opcode) {
             case BLE_OP_SET_TARGET_WEIGHT:
@@ -76,6 +81,12 @@ public:
                 break;
             case BLE_OP_SELECT_CUP_PROFILE:
                 if (raw.size() >= 2) cmd.id = (uint8_t)raw[1];
+                break;
+            case BLE_OP_SET_WEIGHT_SOURCE:
+                if (raw.size() >= 2) cmd.mode = (uint8_t)raw[1];
+                break;
+            case BLE_OP_SET_TIMEMORE_AUTOCONNECT:
+                if (raw.size() >= 2) cmd.id = (uint8_t)raw[1]; // reuses the id byte as a generic 0/1 payload
                 break;
             case BLE_OP_SET_CUP_PROFILE_WEIGHT:
                 if (raw.size() >= 10) {
@@ -244,7 +255,9 @@ bool BleServer::popCommand(BleCommand &out) {
     return xQueueReceive(_command_queue, &out, 0) == pdTRUE;
 }
 
-void BleServer::notifyStatus(const SystemStatus &status, uint8_t active_cup_profile_id) {
+void BleServer::notifyStatus(const SystemStatus &status, uint8_t active_cup_profile_id,
+                              uint8_t weight_source, bool timemore_connected,
+                              bool timemore_autoconnect, bool hx711_detected) {
     if (_status_char == nullptr) {
         return;
     }
@@ -262,6 +275,10 @@ void BleServer::notifyStatus(const SystemStatus &status, uint8_t active_cup_prof
     wire.state = (uint8_t)status.state;
     wire.error_code = status.error_code;
     wire.active_cup_profile_id = active_cup_profile_id;
+    wire.weight_source = weight_source;
+    wire.timemore_connected = timemore_connected ? 1 : 0;
+    wire.timemore_autoconnect = timemore_autoconnect ? 1 : 0;
+    wire.hx711_detected = hx711_detected ? 1 : 0;
 
     _status_char->setValue((uint8_t *)&wire, sizeof(wire));
     _status_char->notify();

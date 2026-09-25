@@ -54,4 +54,27 @@ struct CalibrationData {
     uint16_t checksum;       // CRC16 for validity check - must stay last
 };
 
+// ============================================================
+// OVERSHOOT LEARNING (persisted to EEPROM, separate slot from
+// CalibrationData - see storage.h/.cpp OvershootStorage)
+// ============================================================
+
+// EMA-smoothed (actual delivered weight - target weight) per cup profile
+// slot, in grams - learned from completed grinds so GRINDING can stop
+// this many grams early next time to compensate for the grounds that keep
+// falling after the motor is commanded off (momentum/gravity in the
+// chute). 0 = no learning yet for that slot (falls back to today's
+// stop-exactly-at-target behavior). Indexed by CalibrationData's own
+// active_cup_profile_id, so each dosing cup slot learns its own
+// correction independently - kept in a separate struct/EEPROM slot
+// (rather than added to CalibrationData) specifically so this can evolve
+// without risking the CRC-invalidation-wipes-everything gotcha that a
+// CalibrationData layout change would trigger on already-provisioned
+// boards (see project_relay_module memory equivalent for calibration:
+// docs/DEVELOPMENT-LOG.md's HX711 entry / Storage class comments).
+struct OvershootData {
+    float learned_overshoot_g[CUP_PROFILE_COUNT];
+    uint16_t checksum; // CRC16 for validity check - must stay last
+};
+
 #endif // DATA_TYPES_H

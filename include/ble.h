@@ -26,6 +26,8 @@ enum BleOpcode : uint8_t {
     BLE_OP_SET_SMOOTHING_ALPHA   = 13, // + float alpha, clamped [0.05, 0.9] - runtime only, not persisted (the app resends it after every connect)
     BLE_OP_OTA_START             = 14, // no payload - SSID/password/URL must already be set via OtaConfig characteristic
     BLE_OP_OTA_CANCEL            = 15, // no payload - only stops an in-progress WiFi connect attempt, see OtaManager::cancel()
+    BLE_OP_SET_WEIGHT_SOURCE     = 16, // + uint8 WeightSource - runtime only, not persisted (same pattern as smoothing alpha)
+    BLE_OP_SET_TIMEMORE_AUTOCONNECT = 17, // + uint8 0/1 - enables/disables TimemoreScale's scan+reconnect loop, runtime only
 };
 
 // field_id byte prefixing every OtaConfig characteristic write.
@@ -39,8 +41,8 @@ enum OtaConfigField : uint8_t {
 // GrinderController::update() one at a time via popCommand().
 struct BleCommand {
     uint8_t opcode;
-    uint8_t id;       // cup profile id, when relevant
-    uint8_t mode;      // SystemMode, when relevant
+    uint8_t id;       // cup profile id (SELECT/SET_CUP_PROFILE_*) or 0/1 enabled flag (SET_TIMEMORE_AUTOCONNECT), when relevant
+    uint8_t mode;      // SystemMode (SET_MODE) or WeightSource (SET_WEIGHT_SOURCE), when relevant
     float value_a;     // target_weight_g OR cup_weight_g
     float value_b;      // tolerance_g
     char name[12];       // null-terminated, when relevant
@@ -58,7 +60,17 @@ public:
 
     bool popCommand(BleCommand &out); // true if a command was dequeued into out
 
-    void notifyStatus(const SystemStatus &status, uint8_t active_cup_profile_id); // internally rate-limited
+    // weight_source/timemore_connected reflect which sensor is currently
+    // feeding current_weight_g and whether the Timemore Dot BLE central link
+    // is up - see WeightSource in config.h. timemore_autoconnect reflects
+    // whether TimemoreScale's scan+reconnect loop is currently enabled
+    // (BLE_OP_SET_TIMEMORE_AUTOCONNECT) - on by default at boot. hx711_detected
+    // reflects whether the load cell is physically wired up, independent of
+    // weight_source - lets the app hide HX711-only UI (calibration, corner
+    // check) when it isn't there.
+    void notifyStatus(const SystemStatus &status, uint8_t active_cup_profile_id,
+                       uint8_t weight_source, bool timemore_connected,
+                       bool timemore_autoconnect, bool hx711_detected); // internally rate-limited
 
     // point_count/last_point_raw/last_point_weight_g reflect the in-progress
     // calibration session; last_save_ok is only meaningful right after a SAVE.

@@ -143,11 +143,22 @@ void StateMachine::update() {
     }
 
     switch (_status->state) {
-        case STATE_GRINDING:
-            if (_status->current_weight_g - _session_start_weight_g >= _status->target_weight_g) {
+        case STATE_GRINDING: {
+            // Stop _stop_offset_g grams early to compensate for grounds
+            // that keep falling after the motor is commanded off (see
+            // OvershootData) - 0 until a cup profile has learned a
+            // correction, matching the original stop-exactly-at-target
+            // behavior.
+            float effective_target = _status->target_weight_g - _stop_offset_g;
+            float min_target = _status->target_weight_g * OVERSHOOT_MIN_TARGET_FRACTION;
+            if (effective_target < min_target) {
+                effective_target = min_target; // safety floor against a runaway learned correction
+            }
+            if (_status->current_weight_g - _session_start_weight_g >= effective_target) {
                 onEvent(EVT_TARGET_REACHED);
             }
             break;
+        }
 
         case STATE_PULL_SHOT:
             // first weight movement off zero counts as "pull started"

@@ -10,6 +10,7 @@
 #include "ble.h"
 #include "storage.h"
 #include "ota.h"
+#include "timemore_scale.h"
 
 // Orchestrates all subsystems: reads the load cell, watches for a known
 // dosing cup being placed (auto-start), drains BLE commands from the
@@ -31,9 +32,41 @@ private:
     BleServer _ble;
     Storage _storage;
     OtaManager _ota;
+    TimemoreScale _timemore;
+
+    // Which sensor feeds _status.current_weight_g - app-selectable via
+    // BLE_OP_SET_WEIGHT_SOURCE, runtime only (same pattern as
+    // _smoothing_alpha below - not persisted, app resends it on connect).
+    WeightSource _weight_source = WEIGHT_SOURCE_HX711;
+
+    // Tracks whether the HX711 is physically wired up, independent of
+    // _weight_source - the app uses this to hide HX711-only UI (manual
+    // calibration, corner-consistency check) when the load cell isn't
+    // there, e.g. while running a Timemore-Dot-only test rig. Updated every
+    // readSensors() from HX711::getStatus() (HX711_DISCONNECTED means DOUT
+    // never toggled - a physically-absent sensor, not a transient misread).
+    bool _hx711_detected = true;
 
     SystemStatus _status;
     CalibrationData _calibration;
+
+    OvershootStorage _overshoot_storage;
+    OvershootData _overshoot; // learned per-cup-profile stop-early correction, see data_types.h
+
+    // GRINDING->IDLE fires the instant current_weight_g first crosses the
+    // stop threshold - current_weight_g at that exact tick is essentially
+    // just the threshold value itself, not the true final delivered
+    // weight (grounds still falling + the scale's own reporting lag,
+    // worse over BLE with Timemore Dot, both need a moment to catch up).
+    // So overshoot learning doesn't sample immediately: it captures the
+    // session's start weight/target/profile right at the transition, then
+    // waits OVERSHOOT_SETTLE_MS and reads current_weight_g *then* for the
+    // actual learning update - see updateOvershootLearning().
+    bool _overshoot_eval_pending = false;
+    uint32_t _overshoot_eval_start_ms = 0;
+    float _overshoot_eval_session_start_weight_g = 0.0f;
+    float _overshoot_eval_target_weight_g = 0.0f;
+    uint8_t _overshoot_eval_profile_id = 0;
 
     uint32_t _last_sensor_read_ms = 0;
     uint32_t _last_state_update_ms = 0;
@@ -68,6 +101,7 @@ private:
     void readCupDetect(uint32_t now);
     void processBleCommands();
     void runStateMachine(uint32_t now);
+    void updateOvershootLearning(float session_start_weight_g, float target_weight_g, uint8_t profile_id);
 
     long sampleRawAveraged(uint8_t samples);
     void handleTare();

@@ -19,6 +19,7 @@ void GrinderController::begin() {
     _motor.begin();
     _storage.begin();
     _ble.begin();
+    _timemore.begin(); // starts scanning immediately - fine if no Timemore Dot is around, update() just keeps retrying
     _ota.begin();
     _ble.attachOta(&_ota);
     _ota.setStatusCallback([this]() { _ble.notifyOtaStatus(); });
@@ -43,6 +44,13 @@ void GrinderController::begin() {
 
     _ble.attachCalibration(&_calibration);
 
+    if (!_overshoot_storage.restore(_overshoot)) {
+        for (uint8_t i = 0; i < CUP_PROFILE_COUNT; i++) {
+            _overshoot.learned_overshoot_g[i] = 0.0f; // no learning yet - stop exactly at target, same as before this feature
+        }
+        _overshoot_storage.save(_overshoot);
+    }
+
     _status.target_weight_g = _calibration.target_weight_g;
     _status.current_weight_g = 0.0f;
     _status.motor_running = false;
@@ -53,18 +61,37 @@ void GrinderController::begin() {
 }
 
 void GrinderController::readSensors(uint32_t now) {
+    _timemore.update(); // paces its own scan/reconnect - safe to call every loop, not gated by HX711_READ_INTERVAL_MS
+
     if (now - _last_sensor_read_ms < HX711_READ_INTERVAL_MS) {
         return;
     }
     _last_sensor_read_ms = now;
 
-    float raw_weight = _scale.readWeight();
-    // Reflects only the latest read, not "sticky" - a transient HX711 timeout
-    // (routine, see docs/DEVELOPMENT-LOG.md's HX711 entry) shouldn't pin this
-    // at a non-zero value forever once reads start succeeding again. Not
-    // automatically fatal either way - the state machine only escalates via
-    // EVT_ERROR_OCCURRED where relevant.
-    _status.error_code = (_scale.getStatus() == HX711_OK) ? 0 : 2; // see hx711.h HX711Status for the underlying cause
+    // HX711 is always sampled regardless of the active source - keeps tare/
+    // calibration state live so switching sources mid-session doesn't hand
+    // back a stale reading, and it's the only source local Tare/Calibrate
+    // BLE ops touch.
+    float hx711_weight = _scale.readWeight();
+    _hx711_detected = (_scale.getStatus() != HX711_DISCONNECTED);
+
+    float raw_weight;
+    if (_weight_source == WEIGHT_SOURCE_TIMEMORE) {
+        raw_weight = _timemore.getWeightG();
+        // 3 = selected weight source (Timemore Dot) not connected - distinct
+        // from HX711's own error codes (1/2) so the app can tell them apart.
+        // Not "sticky" either, same reasoning as the HX711 case below - once
+        // reconnected this clears on its own.
+        _status.error_code = _timemore.isConnected() ? 0 : 3;
+    } else {
+        raw_weight = hx711_weight;
+        // Reflects only the latest read, not "sticky" - a transient HX711 timeout
+        // (routine, see docs/DEVELOPMENT-LOG.md's HX711 entry) shouldn't pin this
+        // at a non-zero value forever once reads start succeeding again. Not
+        // automatically fatal either way - the state machine only escalates via
+        // EVT_ERROR_OCCURRED where relevant.
+        _status.error_code = (_scale.getStatus() == HX711_OK) ? 0 : 2; // see hx711.h HX711Status for the underlying cause
+    }
 
     if (!_filter_initialized) {
         _filtered_weight_g = raw_weight;
@@ -117,6 +144,7 @@ void GrinderController::processBleCommands() {
     while (_ble.popCommand(cmd)) {
         switch (cmd.opcode) {
             case BLE_OP_SET_TARGET_WEIGHT:
+                Serial.printf("[CTRL] BLE_OP_SET_TARGET_WEIGHT requested=%.2f (was %.2f)\n", cmd.value_a, _status.target_weight_g);
                 _status.target_weight_g = cmd.value_a;
                 break;
 
@@ -138,6 +166,19 @@ void GrinderController::processBleCommands() {
 
             case BLE_OP_EMERGENCY_STOP:
                 _state_machine.onEvent(EVT_EMERGENCY_STOP);
+                break;
+
+            case BLE_OP_SET_WEIGHT_SOURCE:
+                Serial.printf("[CTRL] BLE_OP_SET_WEIGHT_SOURCE requested=%d\n", (int)cmd.mode);
+                if (cmd.mode == WEIGHT_SOURCE_HX711 || cmd.mode == WEIGHT_SOURCE_TIMEMORE) {
+                    _weight_source = (WeightSource)cmd.mode;
+                    _filter_initialized = false; // snap to the new source's reading instead of blending across scales
+                }
+                break;
+
+            case BLE_OP_SET_TIMEMORE_AUTOCONNECT:
+                Serial.printf("[CTRL] BLE_OP_SET_TIMEMORE_AUTOCONNECT requested=%d\n", (int)cmd.id);
+                _timemore.setEnabled(cmd.id != 0);
                 break;
 
             case BLE_OP_SELECT_CUP_PROFILE:
@@ -214,9 +255,13 @@ void GrinderController::processBleCommands() {
 }
 
 void GrinderController::handleTare() {
-    _scale.tare();
-    _calibration.offset = _scale.getOffset();
-    _storage.save(_calibration);
+    if (_weight_source == WEIGHT_SOURCE_TIMEMORE) {
+        _timemore.tare(); // scale zeroes itself over BLE - nothing local to persist
+    } else {
+        _scale.tare();
+        _calibration.offset = _scale.getOffset();
+        _storage.save(_calibration);
+    }
     _filter_initialized = false; // snap the smoothed reading to the new zero instead of easing into it
 }
 
@@ -297,6 +342,14 @@ void GrinderController::runStateMachine(uint32_t now) {
     }
     _last_state_update_ms = now;
 
+    _state_machine.setStopOffsetG(_overshoot.learned_overshoot_g[_calibration.active_cup_profile_id]);
+
+    if (_prev_state != STATE_GRINDING && _status.state == STATE_GRINDING) {
+        Serial.printf("[OVERSHOOT] grind starting: profile=%d target=%.2fg using learned_offset=%.2fg\n",
+                      _calibration.active_cup_profile_id, _status.target_weight_g,
+                      _overshoot.learned_overshoot_g[_calibration.active_cup_profile_id]);
+    }
+
     _state_machine.update();
     _motor.update();
 
@@ -306,8 +359,70 @@ void GrinderController::runStateMachine(uint32_t now) {
         _calibration.wear_counter++;
         _calibration.target_weight_g = _status.target_weight_g;
         _storage.save(_calibration);
+
+        // Don't sample current_weight_g yet - it's essentially just the
+        // stop-threshold value that triggered this very transition, not
+        // the true final delivered weight. Capture what's already fixed
+        // now (won't change even if another grind starts before the
+        // settle window elapses) and sample the weight itself later.
+        _overshoot_eval_pending = true;
+        _overshoot_eval_start_ms = now;
+        _overshoot_eval_session_start_weight_g = _state_machine.getSessionStartWeightG();
+        _overshoot_eval_target_weight_g = _status.target_weight_g;
+        _overshoot_eval_profile_id = _calibration.active_cup_profile_id;
     }
+
+    if (_overshoot_eval_pending && now - _overshoot_eval_start_ms >= OVERSHOOT_SETTLE_MS) {
+        _overshoot_eval_pending = false;
+        if (_status.state == STATE_IDLE) { // still idle - no new grind started meanwhile, safe to sample
+            updateOvershootLearning(_overshoot_eval_session_start_weight_g,
+                                     _overshoot_eval_target_weight_g,
+                                     _overshoot_eval_profile_id);
+        }
+    }
+
     _prev_state = _status.state;
+}
+
+// Called ~OVERSHOOT_SETTLE_MS after a grind session ends in STATE_IDLE
+// with no error, once current_weight_g has had time to settle to the true
+// final delivered weight - updates the given cup profile's learned
+// overshoot correction (EMA of delivered-minus-target grams) so the next
+// grind on this profile stops that many grams earlier. Skipped if the
+// grind looks like it was manually aborted (BLE_OP_STOP) rather than
+// completed near its target - learning from a partial/aborted grind would
+// corrupt the correction.
+void GrinderController::updateOvershootLearning(float session_start_weight_g, float target_weight_g, uint8_t profile_id) {
+    float delivered_g = _status.current_weight_g - session_start_weight_g;
+    if (delivered_g < target_weight_g * 0.8f) {
+        Serial.printf("[OVERSHOOT] skipped (looks aborted): delivered=%.2fg target=%.2fg\n",
+                      delivered_g, target_weight_g);
+        return; // looks aborted early, not a natural target-reached completion - don't learn from it
+    }
+
+    // actual_overshoot_g is the RESIDUAL error after already-applied
+    // correction (this grind stopped at target-learned, then drifted this
+    // much further) - it is NOT a fresh, uncorrected overshoot sample.
+    // Confirmed on the bench 2026-09-25: `learned += alpha*(actual-learned)`
+    // (treating it like an EMA of independent raw samples) has a fixed
+    // point at learned == true_overshoot/2, not true_overshoot - it
+    // converges to only ever cancelling HALF the real overshoot, because
+    // it re-subtracts the already-applied correction a second time. The
+    // fix is a plain integral update: nudge learned directly by the
+    // residual itself, which has its fixed point at the residual reaching
+    // zero (learned == true_overshoot) - verified against real grind
+    // data, see project_relay_module memory equivalent / DEVELOPMENT-LOG.
+    float actual_overshoot_g = delivered_g - target_weight_g;
+    float &learned = _overshoot.learned_overshoot_g[profile_id];
+    float before = learned;
+    learned += OVERSHOOT_EMA_ALPHA * actual_overshoot_g;
+    if (learned < OVERSHOOT_CLAMP_MIN_G) learned = OVERSHOOT_CLAMP_MIN_G;
+    if (learned > OVERSHOOT_CLAMP_MAX_G) learned = OVERSHOOT_CLAMP_MAX_G;
+
+    Serial.printf("[OVERSHOOT] profile=%d delivered=%.2fg target=%.2fg actual_overshoot=%.2fg learned %.2fg -> %.2fg\n",
+                  profile_id, delivered_g, target_weight_g, actual_overshoot_g, before, learned);
+
+    _overshoot_storage.save(_overshoot);
 }
 
 void GrinderController::update() {
@@ -318,6 +433,8 @@ void GrinderController::update() {
     processBleCommands();
     runStateMachine(now);
     _ota.update(); // no-op unless an OTA_START was accepted; blocks this loop only mid-flash
-    _ble.notifyStatus(_status, _calibration.active_cup_profile_id); // internally rate-limited
+    _ble.notifyStatus(_status, _calibration.active_cup_profile_id,
+                       (uint8_t)_weight_source, _timemore.isConnected(),
+                       _timemore.isEnabled(), _hx711_detected); // internally rate-limited
     _ble.notifyOtaStatus(); // internally rate-limited
 }

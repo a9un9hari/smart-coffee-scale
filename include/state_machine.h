@@ -26,6 +26,20 @@ public:
     void onModeCommand(SystemMode requested_mode); // app mode toggle, only honored from an idle-ish state
     SystemState getCurrentState() const { return _status->state; }
 
+    // Weight at the moment the current/last grind session started - lets
+    // GrinderController compute how much was actually delivered once a
+    // grind finishes (current_weight_g - this), to feed the overshoot
+    // learning EMA. Meaningless outside/before a grind session.
+    float getSessionStartWeightG() const { return _session_start_weight_g; }
+
+    // How many grams early GRINDING should stop, to compensate for
+    // grounds that keep falling after the motor is commanded off -
+    // GrinderController updates this every cycle from the active cup
+    // profile's learned overshoot (OvershootData) before calling update().
+    // 0 = stop exactly at target_weight_g (today's behavior, and the
+    // default until a profile has learned a correction).
+    void setStopOffsetG(float offset_g) { _stop_offset_g = offset_g; }
+
 private:
     SystemStatus *_status;
     MotorControl *_motor = nullptr;
@@ -35,6 +49,8 @@ private:
     // this, not raw current_weight_g, so it doesn't matter how much the
     // dosing cup itself weighs.
     float _session_start_weight_g = 0.0f;
+
+    float _stop_offset_g = 0.0f;
 
     // PULLING-state tracking: weight considered "stable" once it hasn't
     // moved for ESPRESSO_STABLE_MS - that's when a shot is done.
