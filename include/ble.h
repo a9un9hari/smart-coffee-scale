@@ -26,7 +26,7 @@ enum BleOpcode : uint8_t {
     BLE_OP_SET_SMOOTHING_ALPHA   = 13, // + float alpha, clamped [0.05, 0.9] - runtime only, not persisted (the app resends it after every connect)
     BLE_OP_OTA_START             = 14, // no payload - SSID/password/URL must already be set via OtaConfig characteristic
     BLE_OP_OTA_CANCEL            = 15, // no payload - only stops an in-progress WiFi connect attempt, see OtaManager::cancel()
-    BLE_OP_SET_WEIGHT_SOURCE     = 16, // + uint8 WeightSource - runtime only, not persisted (same pattern as smoothing alpha)
+    BLE_OP_SET_WEIGHT_SOURCE     = 16, // + uint8 WeightSource - persisted to EEPROM (PrefsStorage)
     BLE_OP_SET_TIMEMORE_AUTOCONNECT = 17, // + uint8 0/1 - enables/disables TimemoreScale's scan+reconnect loop, runtime only
 };
 

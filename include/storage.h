@@ -10,8 +10,8 @@
 // from the backup instead of falling back to factory defaults.
 //
 // NOTE: this class owns EEPROM addresses [0, 2*sizeof(CalibrationData)) -
-// OvershootStorage below picks up right after it. Both share one
-// EEPROM.begin() call (see Storage::begin() / totalBytesNeeded()).
+// OvershootStorage and PrefsStorage below pick up right after it. All share one
+// EEPROM.begin() call (see Storage::begin()).
 class Storage {
 public:
     void begin();
@@ -51,6 +51,27 @@ private:
     static uint16_t computeChecksum(OvershootData data);
     bool readSlot(int addr, OvershootData &out);
     void writeSlot(int addr, OvershootData data);
+};
+
+// Same pattern again for PrefsData, placed right after OvershootStorage's
+// slots (OvershootStorage::END_ADDR). This is the last record - its
+// END_ADDR is what Storage::begin() sizes EEPROM to.
+class PrefsStorage {
+public:
+    bool restore(PrefsData &data);
+    void save(const PrefsData &data);
+
+private:
+    static const int ADDR_PRIMARY = OvershootStorage::END_ADDR;
+    static const int ADDR_BACKUP = ADDR_PRIMARY + sizeof(PrefsData);
+
+public:
+    static const int END_ADDR = ADDR_BACKUP + sizeof(PrefsData);
+
+private:
+    static uint16_t computeChecksum(PrefsData data);
+    bool readSlot(int addr, PrefsData &out);
+    void writeSlot(int addr, PrefsData data);
 };
 
 #endif // STORAGE_H

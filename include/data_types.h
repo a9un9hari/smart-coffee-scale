@@ -77,4 +77,17 @@ struct OvershootData {
     uint16_t checksum; // CRC16 for validity check - must stay last
 };
 
+// ============================================================
+// DEVICE PREFERENCES (persisted to EEPROM, own slot after
+// OvershootData - see storage.h/.cpp PrefsStorage)
+// ============================================================
+
+// Settings that must survive a power cycle without the app connected
+// (phone-less grinding). Kept out of CalibrationData for the same
+// CRC-invalidation reason as OvershootData above.
+struct PrefsData {
+    uint8_t weight_source; // WeightSource
+    uint16_t checksum;     // CRC16 for validity check - must stay last
+};
+
 #endif // DATA_TYPES_H

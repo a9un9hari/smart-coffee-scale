@@ -35,9 +35,13 @@ private:
     TimemoreScale _timemore;
 
     // Which sensor feeds _status.current_weight_g - app-selectable via
-    // BLE_OP_SET_WEIGHT_SOURCE, runtime only (same pattern as
-    // _smoothing_alpha below - not persisted, app resends it on connect).
-    WeightSource _weight_source = WEIGHT_SOURCE_HX711;
+    // BLE_OP_SET_WEIGHT_SOURCE, persisted in _prefs so phone-less grinding
+    // keeps using the same scale after a power cycle. Overwritten from
+    // EEPROM in begin().
+    WeightSource _weight_source = WEIGHT_SOURCE_TIMEMORE;
+
+    PrefsStorage _prefs_storage;
+    PrefsData _prefs;
 
     // Tracks whether the HX711 is physically wired up, independent of
     // _weight_source - the app uses this to hide HX711-only UI (manual

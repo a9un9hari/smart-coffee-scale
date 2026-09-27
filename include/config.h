@@ -110,8 +110,9 @@ enum SystemState {
     STATE_ERROR
 };
 
-// Which sensor drives current_weight_g - app-selectable, not persisted (see
-// BLE_OP_SET_WEIGHT_SOURCE - same runtime-only pattern as smoothing alpha).
+// Which sensor drives current_weight_g - app-selectable via
+// BLE_OP_SET_WEIGHT_SOURCE and persisted to EEPROM (PrefsStorage), so a
+// phone-less power cycle keeps grinding off the same scale.
 enum WeightSource : uint8_t {
     WEIGHT_SOURCE_HX711    = 0,
     WEIGHT_SOURCE_TIMEMORE = 1

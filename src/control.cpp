@@ -51,6 +51,16 @@ void GrinderController::begin() {
         _overshoot_storage.save(_overshoot);
     }
 
+    if (_prefs_storage.restore(_prefs) &&
+        (_prefs.weight_source == WEIGHT_SOURCE_HX711 || _prefs.weight_source == WEIGHT_SOURCE_TIMEMORE)) {
+        _weight_source = (WeightSource)_prefs.weight_source;
+    } else {
+        _prefs.weight_source = WEIGHT_SOURCE_TIMEMORE; // first boot with this record - Timemore Dot is the primary scale
+        _prefs_storage.save(_prefs);
+        _weight_source = WEIGHT_SOURCE_TIMEMORE;
+    }
+    Serial.printf("[PREFS] weight_source=%d\n", (int)_weight_source);
+
     _status.target_weight_g = _calibration.target_weight_g;
     _status.current_weight_g = 0.0f;
     _status.motor_running = false;
@@ -173,6 +183,10 @@ void GrinderController::processBleCommands() {
                 if (cmd.mode == WEIGHT_SOURCE_HX711 || cmd.mode == WEIGHT_SOURCE_TIMEMORE) {
                     _weight_source = (WeightSource)cmd.mode;
                     _filter_initialized = false; // snap to the new source's reading instead of blending across scales
+                    if (_prefs.weight_source != cmd.mode) { // only touch flash on a real change
+                        _prefs.weight_source = cmd.mode;
+                        _prefs_storage.save(_prefs);
+                    }
                 }
                 break;
 

@@ -59,12 +59,10 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
         ble.sendCommand(BleCommand.setSmoothingAlpha(alpha))
     }
 
-    private val _weightSource = MutableStateFlow(prefs.weightSource)
-    val weightSource: StateFlow<WeightSource> = _weightSource.asStateFlow()
-
+    // Firmware persists this itself (so phone-less grinding survives a
+    // power cycle) - the app just sends changes and reads it back from
+    // GrinderStatus.weightSource, never resends it on connect.
     fun setWeightSource(source: WeightSource) {
-        prefs.weightSource = source
-        _weightSource.value = source
         ble.sendCommand(BleCommand.setWeightSource(source))
     }
 
@@ -104,7 +102,6 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
             ble.connectionState.collect { state ->
                 if (state == ConnectionState.CONNECTED) {
                     ble.sendCommand(BleCommand.setSmoothingAlpha(_smoothingAlpha.value))
-                    ble.sendCommand(BleCommand.setWeightSource(_weightSource.value))
                     ble.sendCommand(BleCommand.setTimemoreAutoConnect(_timemoreAutoConnect.value))
                 }
             }
