@@ -158,7 +158,7 @@ fun MainScreen(
                 )
                 Tab.SCALE -> ScaleScreen(status = status, onTare = viewModel::tare, onSetWeightSource = viewModel::setWeightSource)
                 Tab.TIMER -> TimerScreen(status = status, onTare = viewModel::tare)
-                Tab.BREW -> BrewScreen(status = status)
+                Tab.BREW -> BrewScreen(status = status, onTare = viewModel::tare, onBrewComplete = viewModel::logBrew)
             }
         }
     }
