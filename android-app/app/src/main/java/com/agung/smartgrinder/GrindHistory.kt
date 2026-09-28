@@ -35,6 +35,11 @@ data class GrindRecord(
 
     companion object {
         /** Parses one firmware CSV row, or null for a header/malformed/truncated line. */
+        // The firmware prints a missing value as C printf's "nan", which
+        // Kotlin's toFloat() rejects (it only accepts "NaN").
+        private fun parseOptional(s: String): Float? =
+            if (s.equals("nan", ignoreCase = true)) null else s.toFloat().takeUnless { it.isNaN() }
+
         fun fromCsv(line: String, receivedAtMs: Long): GrindRecord? {
             val f = line.trim().split(',')
             if (f.size != 11) return null
@@ -45,8 +50,8 @@ data class GrindRecord(
                     profile = f[2].toInt(),
                     targetG = f[3].toFloat(),
                     learnedBeforeG = f[4].toFloat(),
-                    mainG = f[5].toFloat().takeUnless { it.isNaN() },
-                    learnedAfterG = f[6].toFloat().takeUnless { it.isNaN() },
+                    mainG = parseOptional(f[5]),
+                    learnedAfterG = parseOptional(f[6]),
                     pulses = f[7].toInt(),
                     pulseShortG = f[8].split(';').mapNotNull { it.toFloatOrNull() },
                     finalG = f[9].toFloat(),

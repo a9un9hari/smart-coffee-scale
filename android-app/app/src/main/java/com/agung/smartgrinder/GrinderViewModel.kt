@@ -56,8 +56,14 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
     private fun sortedHistory(records: List<GrindRecord>) =
         records.sortedWith(compareByDescending<GrindRecord> { it.boot }.thenByDescending { it.uptimeS })
 
-    fun syncGrindLog() {
-        val newest = _grindHistory.value.firstOrNull()
+    /**
+     * Incremental (default, used on connect): only sessions newer than the
+     * newest one stored. Full: everything still on the grinder - backfills
+     * any row missed earlier (e.g. one an older app version failed to
+     * parse); already-stored rows are skipped, keeping their manual fields.
+     */
+    fun syncGrindLog(full: Boolean = false) {
+        val newest = if (full) null else _grindHistory.value.firstOrNull()
         if (ble.requestGrindLog(newest?.boot ?: 0L, newest?.uptimeS ?: 0L)) {
             _grindLogSyncing.value = true
         }

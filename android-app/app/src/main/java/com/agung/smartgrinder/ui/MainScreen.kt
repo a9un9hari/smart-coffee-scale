@@ -144,7 +144,7 @@ fun MainScreen(
                     records = grindHistory,
                     syncing = grindLogSyncing,
                     connected = connectionState == ConnectionState.CONNECTED,
-                    onSync = viewModel::syncGrindLog,
+                    onSync = { viewModel.syncGrindLog(full = true) },
                     onSaveReference = viewModel::setGrindReference
                 )
             }
