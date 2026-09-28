@@ -89,6 +89,18 @@
 // instantly.
 #define OVERSHOOT_MIN_TARGET_FRACTION 0.5f
 
+// Top-up pulses: if a grind settles (OVERSHOOT_SETTLE_MS after stop) still
+// more than TOPUP_THRESHOLD_G short of target, run the motor for
+// TOPUP_PULSE_MS, settle again, re-check - at most TOPUP_MAX_PULSES times.
+// Overshoot learning still samples the main grind's undershoot first, so
+// the need for top-ups should shrink on its own over the next grinds.
+#define TOPUP_ENABLED           1
+#define TOPUP_THRESHOLD_G       0.2f
+#define TOPUP_PULSE_MS          1000
+#define TOPUP_MAX_PULSES        3
+
+#define GRINDLOG_MAX_BYTES      32768    // rotate grinds.csv past this (~250 sessions); one old generation kept
+
 #define STATE_MACHINE_UPDATE_MS 100
 #define MOTOR_MAX_RUNTIME_MS    30000    // 30s safety timeout
 #define ESPRESSO_STABLE_MS      3000     // weight stable = shot done

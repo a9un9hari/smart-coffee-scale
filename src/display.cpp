@@ -38,7 +38,7 @@ static const char *stateLabel(SystemState state) {
     return "?";
 }
 
-void Display::update(uint32_t now, const SystemStatus &status, float session_start_weight_g,
+void Display::update(uint32_t now, const SystemStatus &status, const char *phase_label, float session_start_weight_g,
                      const CupProfile &cup, uint8_t cup_id,
                      WeightSource weight_source, bool timemore_connected) {
     if (!_present) {
@@ -63,14 +63,14 @@ void Display::update(uint32_t now, const SystemStatus &status, float session_sta
     _last_refresh_ms = now;
 
     uint32_t start_us = micros();
-    render(now, status, session_start_weight_g, cup, cup_id, weight_source, timemore_connected);
+    render(now, status, phase_label, session_start_weight_g, cup, cup_id, weight_source, timemore_connected);
     if (!_refresh_timing_logged) {
         Serial.printf("[DISPLAY] full refresh took %lu us\n", (unsigned long)(micros() - start_us));
         _refresh_timing_logged = true;
     }
 }
 
-void Display::render(uint32_t now, const SystemStatus &status, float session_start_weight_g,
+void Display::render(uint32_t now, const SystemStatus &status, const char *phase_label, float session_start_weight_g,
                      const CupProfile &cup, uint8_t cup_id,
                      WeightSource weight_source, bool timemore_connected) {
     char buf[24];
@@ -118,6 +118,9 @@ void Display::render(uint32_t now, const SystemStatus &status, float session_sta
 
     // --- bottom row: state (left), target (right) ---
     const char *label = _done_active ? "DONE" : stateLabel(status.state);
+    if (phase_label != nullptr && phase_label[0] != '\0') {
+        label = phase_label;
+    }
     if (status.state == STATE_ERROR) {
         snprintf(buf, sizeof(buf), "ERROR %d", status.error_code);
         label = buf;

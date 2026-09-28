@@ -21,6 +21,10 @@ static bool isMotorState(SystemState s) {
 
 void StateMachine::transitionTo(SystemState new_state) {
     SystemState old_state = _status->state;
+    if (old_state == STATE_GRINDING && new_state != STATE_GRINDING) {
+        _pulse_active_last = _pulse_active; // lets the caller tell a pulse's end from a main grind's
+        _pulse_active = false;
+    }
     Serial.printf("[SM] transition %d -> %d (weight=%.2f)\n", (int)old_state, (int)new_state, _status->current_weight_g);
     _status->state = new_state;
     _status->state_entered_ms = millis();
@@ -82,6 +86,7 @@ void StateMachine::handleGrinderEvent(StateMachineEvent event) {
         case STATE_IDLE:
             if (event == EVT_CUP_DETECTED || event == EVT_BLE_START) {
                 _session_start_weight_g = _status->current_weight_g;
+                _pulse_active = false; // a fresh session, not a top-up
                 transitionTo(STATE_GRINDING);
             }
             break;
@@ -95,6 +100,16 @@ void StateMachine::handleGrinderEvent(StateMachineEvent event) {
         default:
             break; // events not relevant to grinder-mode states
     }
+}
+
+bool StateMachine::startTopUpPulse(uint32_t duration_ms) {
+    if (_status->mode != MODE_GRINDER || _status->state != STATE_IDLE) {
+        return false;
+    }
+    _pulse_active = true;
+    _pulse_end_ms = millis() + duration_ms;
+    transitionTo(STATE_GRINDING);
+    return true;
 }
 
 void StateMachine::handleEspressoEvent(StateMachineEvent event) {
@@ -144,6 +159,14 @@ void StateMachine::update() {
 
     switch (_status->state) {
         case STATE_GRINDING: {
+            if (_pulse_active) {
+                float delivered = _status->current_weight_g - _session_start_weight_g;
+                if ((int32_t)(now - _pulse_end_ms) >= 0 || delivered >= _status->target_weight_g) {
+                    onEvent(EVT_TARGET_REACHED);
+                }
+                break;
+            }
+
             // Stop _stop_offset_g grams early to compensate for grounds
             // that keep falling after the motor is commanded off (see
             // OvershootData) - 0 until a cup profile has learned a

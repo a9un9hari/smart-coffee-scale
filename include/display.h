@@ -24,7 +24,10 @@ public:
     Display();
 
     bool begin(); // true if the OLED answered on I2C
-    void update(uint32_t now, const SystemStatus &status, float session_start_weight_g,
+    // phase_label overrides the bottom-left state text when non-empty
+    // (e.g. "SETTLING", "TOP-UP 1/3") - states the SystemState enum doesn't
+    // distinguish on its own.
+    void update(uint32_t now, const SystemStatus &status, const char *phase_label, float session_start_weight_g,
                 const CupProfile &cup, uint8_t cup_id,
                 WeightSource weight_source, bool timemore_connected);
 
@@ -43,7 +46,7 @@ private:
     bool _done_active = false;
     float _done_start_weight_g = 0.0f;
 
-    void render(uint32_t now, const SystemStatus &status, float session_start_weight_g,
+    void render(uint32_t now, const SystemStatus &status, const char *phase_label, float session_start_weight_g,
                 const CupProfile &cup, uint8_t cup_id,
                 WeightSource weight_source, bool timemore_connected);
 };

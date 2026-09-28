@@ -12,6 +12,7 @@
 #include "ota.h"
 #include "timemore_scale.h"
 #include "display.h"
+#include "grind_log.h"
 
 // Orchestrates all subsystems: reads the load cell, watches for a known
 // dosing cup being placed (auto-start), drains BLE commands from the
@@ -35,6 +36,7 @@ private:
     OtaManager _ota;
     TimemoreScale _timemore;
     Display _display;
+    GrindLog _grind_log;
 
     // Which sensor feeds _status.current_weight_g - app-selectable via
     // BLE_OP_SET_WEIGHT_SOURCE, persisted in _prefs so phone-less grinding
@@ -73,6 +75,13 @@ private:
     float _overshoot_eval_session_start_weight_g = 0.0f;
     float _overshoot_eval_target_weight_g = 0.0f;
     uint8_t _overshoot_eval_profile_id = 0;
+    bool _overshoot_eval_after_pulse = false; // settle check after a top-up pulse: top-up only, no learning
+
+    // Top-up sequence for the current grind session (see TOPUP_* in config.h).
+    uint8_t _topup_pulses_done = 0;
+    // Set by an app Stop/E-Stop during a session - a deliberate stop must
+    // never be "topped up", nor learned from as if it were a completion.
+    bool _grind_stopped_by_user = false;
 
     uint32_t _last_sensor_read_ms = 0;
     uint32_t _last_state_update_ms = 0;
@@ -106,8 +115,10 @@ private:
     void readSensors(uint32_t now);
     void readCupDetect(uint32_t now);
     void processBleCommands();
+    void processSerialCommands();
     void runStateMachine(uint32_t now);
     void updateOvershootLearning(float session_start_weight_g, float target_weight_g, uint8_t profile_id);
+    void maybeStartTopUp(float session_start_weight_g, float target_weight_g);
 
     long sampleRawAveraged(uint8_t samples);
     void handleTare();

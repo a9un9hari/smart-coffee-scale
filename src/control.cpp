@@ -65,6 +65,7 @@ void GrinderController::begin() {
     _status.current_weight_g = 0.0f;
     _status.motor_running = false;
 
+    _grind_log.begin();
     _display.begin(); // optional module - no-op everywhere if it isn't wired up
 
     _state_machine.init(&_status); // also sets mode=GRINDER, state=IDLE, error_code=0
@@ -173,10 +174,20 @@ void GrinderController::processBleCommands() {
                 break;
 
             case BLE_OP_STOP:
+                if (_grind_log.isSessionOpen()) {
+                    _grind_log.finish(_status.current_weight_g - _state_machine.getSessionStartWeightG(), "user_stop");
+                }
+                _grind_stopped_by_user = true;
+                _overshoot_eval_pending = false; // cancels a pending learn/top-up check too
                 _state_machine.onEvent(EVT_BLE_STOP);
                 break;
 
             case BLE_OP_EMERGENCY_STOP:
+                if (_grind_log.isSessionOpen()) {
+                    _grind_log.finish(_status.current_weight_g - _state_machine.getSessionStartWeightG(), "user_stop");
+                }
+                _grind_stopped_by_user = true;
+                _overshoot_eval_pending = false;
                 _state_machine.onEvent(EVT_EMERGENCY_STOP);
                 break;
 
@@ -360,7 +371,16 @@ void GrinderController::runStateMachine(uint32_t now) {
 
     _state_machine.setStopOffsetG(_overshoot.learned_overshoot_g[_calibration.active_cup_profile_id]);
 
-    if (_prev_state != STATE_GRINDING && _status.state == STATE_GRINDING) {
+    if (_prev_state != STATE_GRINDING && _status.state == STATE_GRINDING && !_state_machine.isTopUpPulseActive()) {
+        _topup_pulses_done = 0;
+        _grind_stopped_by_user = false;
+        if (_grind_log.isSessionOpen()) {
+            // previous session's settle/top-up never got to finish (new
+            // cup placed or Start tapped during SETTLING)
+            _grind_log.finish(_status.current_weight_g - _overshoot_eval_session_start_weight_g, "interrupted");
+        }
+        _grind_log.startSession(_calibration.active_cup_profile_id, _status.target_weight_g,
+                                _overshoot.learned_overshoot_g[_calibration.active_cup_profile_id]);
         Serial.printf("[OVERSHOOT] grind starting: profile=%d target=%.2fg using learned_offset=%.2fg\n",
                       _calibration.active_cup_profile_id, _status.target_weight_g,
                       _overshoot.learned_overshoot_g[_calibration.active_cup_profile_id]);
@@ -369,7 +389,16 @@ void GrinderController::runStateMachine(uint32_t now) {
     _state_machine.update();
     _motor.update();
 
-    if (_prev_state == STATE_GRINDING && _status.state == STATE_IDLE && _status.error_code == 0) {
+    if (_prev_state == STATE_GRINDING && _status.state == STATE_IDLE && _status.error_code == 0 &&
+        _state_machine.lastGrindWasTopUpPulse()) {
+        // a top-up pulse just ended - settle again, then re-check (no
+        // learning, no wear/target bookkeeping: same session as before)
+        if (!_grind_stopped_by_user) {
+            _overshoot_eval_pending = true;
+            _overshoot_eval_after_pulse = true;
+            _overshoot_eval_start_ms = now;
+        }
+    } else if (_prev_state == STATE_GRINDING && _status.state == STATE_IDLE && _status.error_code == 0) {
         // grind finished cleanly - bump wear counter and persist the target
         // weight in case the app dialed in a new one this run
         _calibration.wear_counter++;
@@ -381,20 +410,30 @@ void GrinderController::runStateMachine(uint32_t now) {
         // the true final delivered weight. Capture what's already fixed
         // now (won't change even if another grind starts before the
         // settle window elapses) and sample the weight itself later.
-        _overshoot_eval_pending = true;
         _overshoot_eval_start_ms = now;
         _overshoot_eval_session_start_weight_g = _state_machine.getSessionStartWeightG();
         _overshoot_eval_target_weight_g = _status.target_weight_g;
         _overshoot_eval_profile_id = _calibration.active_cup_profile_id;
+        _overshoot_eval_after_pulse = false;
+        _overshoot_eval_pending = !_grind_stopped_by_user; // a deliberate stop is neither learned from nor topped up
     }
 
     if (_overshoot_eval_pending && now - _overshoot_eval_start_ms >= OVERSHOOT_SETTLE_MS) {
         _overshoot_eval_pending = false;
         if (_status.state == STATE_IDLE) { // still idle - no new grind started meanwhile, safe to sample
-            updateOvershootLearning(_overshoot_eval_session_start_weight_g,
-                                     _overshoot_eval_target_weight_g,
-                                     _overshoot_eval_profile_id);
+            if (!_overshoot_eval_after_pulse) {
+                updateOvershootLearning(_overshoot_eval_session_start_weight_g,
+                                         _overshoot_eval_target_weight_g,
+                                         _overshoot_eval_profile_id);
+                _grind_log.setMainResult(_status.current_weight_g - _overshoot_eval_session_start_weight_g,
+                                         _overshoot.learned_overshoot_g[_overshoot_eval_profile_id]);
+            }
+            maybeStartTopUp(_overshoot_eval_session_start_weight_g, _overshoot_eval_target_weight_g);
         }
+    }
+
+    if (_status.state == STATE_ERROR && _grind_log.isSessionOpen()) {
+        _grind_log.finish(_status.current_weight_g - _state_machine.getSessionStartWeightG(), "error");
     }
 
     _prev_state = _status.state;
@@ -441,14 +480,76 @@ void GrinderController::updateOvershootLearning(float session_start_weight_g, fl
     _overshoot_storage.save(_overshoot);
 }
 
+// Called at each post-grind settle point (after the main grind, then after
+// every pulse). Starts one more short motor pulse if the settled dose is
+// still meaningfully short - see TOPUP_* in config.h.
+// Also closes the session's GrindLog row whenever no further pulse follows.
+void GrinderController::maybeStartTopUp(float session_start_weight_g, float target_weight_g) {
+    float delivered_g = _status.current_weight_g - session_start_weight_g;
+    float shortfall_g = target_weight_g - delivered_g;
+
+    if (!TOPUP_ENABLED || shortfall_g <= TOPUP_THRESHOLD_G) {
+        if (_topup_pulses_done > 0) {
+            Serial.printf("[TOPUP] done after %d pulse(s): delivered=%.2fg target=%.2fg\n",
+                          _topup_pulses_done, delivered_g, target_weight_g);
+        }
+        _grind_log.finish(delivered_g, "ok");
+        return;
+    }
+    if (delivered_g < target_weight_g * 0.8f) {
+        Serial.printf("[TOPUP] skipped: delivered=%.2fg looks like cup removed/aborted\n", delivered_g);
+        _grind_log.finish(delivered_g, "cup_removed");
+        return;
+    }
+    if (_weight_source == WEIGHT_SOURCE_TIMEMORE && !_timemore.isConnected()) {
+        Serial.println("[TOPUP] skipped: Timemore disconnected, weight reading can't be trusted");
+        _grind_log.finish(delivered_g, "no_dot");
+        return;
+    }
+    if (_topup_pulses_done >= TOPUP_MAX_PULSES) {
+        Serial.printf("[TOPUP] gave up after %d pulses: still %.2fg short\n", _topup_pulses_done, shortfall_g);
+        _grind_log.finish(delivered_g, "gave_up");
+        return;
+    }
+
+    if (_state_machine.startTopUpPulse(TOPUP_PULSE_MS)) {
+        _topup_pulses_done++;
+        _grind_log.addPulse(shortfall_g);
+        Serial.printf("[TOPUP] pulse %d/%d: delivered=%.2fg target=%.2fg short=%.2fg\n",
+                      _topup_pulses_done, TOPUP_MAX_PULSES, delivered_g, target_weight_g, shortfall_g);
+    } else {
+        _grind_log.finish(delivered_g, "interrupted");
+    }
+}
+
+// Single-character USB serial commands for pulling the on-flash grind log
+// once a laptop is attached again: 'd' dump, 'X' clear (capital on purpose).
+void GrinderController::processSerialCommands() {
+    while (Serial.available() > 0) {
+        char c = (char)Serial.read();
+        if (c == 'd') {
+            _grind_log.dump(Serial);
+        } else if (c == 'X') {
+            _grind_log.clear();
+        }
+    }
+}
+
 void GrinderController::update() {
     uint32_t now = millis();
 
+    processSerialCommands();
     readSensors(now);
     readCupDetect(now);
     processBleCommands();
     runStateMachine(now);
-    _display.update(now, _status, _state_machine.getSessionStartWeightG(),
+    char phase[12] = "";
+    if (_state_machine.isTopUpPulseActive()) {
+        snprintf(phase, sizeof(phase), "TOP-UP %d/%d", _topup_pulses_done, TOPUP_MAX_PULSES);
+    } else if (_overshoot_eval_pending && _status.state == STATE_IDLE) {
+        snprintf(phase, sizeof(phase), "SETTLING");
+    }
+    _display.update(now, _status, phase, _state_machine.getSessionStartWeightG(),
                     _calibration.cup_profiles[_calibration.active_cup_profile_id],
                     _calibration.active_cup_profile_id,
                     _weight_source, _timemore.isConnected()); // rate-limited, after the stop check on purpose

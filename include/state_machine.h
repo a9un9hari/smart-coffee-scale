@@ -40,6 +40,18 @@ public:
     // default until a profile has learned a correction).
     void setStopOffsetG(float offset_g) { _stop_offset_g = offset_g; }
 
+    // Top-up pulse: re-enters GRINDING from IDLE for duration_ms, keeping
+    // the current session's start weight (it continues the same dose, not
+    // a new one). Ends at the deadline, or early if the dose reaches the
+    // full target - the learned stop offset is NOT applied here, since a
+    // settled undershoot is usually already above target-minus-offset and
+    // would stop the pulse on its first check. Only honored in GRINDER
+    // mode from IDLE; returns false otherwise.
+    bool startTopUpPulse(uint32_t duration_ms);
+    bool isTopUpPulseActive() const { return _pulse_active; }
+    // Whether the most recent GRINDING run that ended was a top-up pulse.
+    bool lastGrindWasTopUpPulse() const { return _pulse_active_last; }
+
 private:
     SystemStatus *_status;
     MotorControl *_motor = nullptr;
@@ -51,6 +63,10 @@ private:
     float _session_start_weight_g = 0.0f;
 
     float _stop_offset_g = 0.0f;
+
+    bool _pulse_active = false;
+    bool _pulse_active_last = false;
+    uint32_t _pulse_end_ms = 0;
 
     // PULLING-state tracking: weight considered "stable" once it hasn't
     // moved for ESPRESSO_STABLE_MS - that's when a shot is done.
