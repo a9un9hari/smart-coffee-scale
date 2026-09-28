@@ -22,9 +22,6 @@ void GrinderController::begin() {
     _ble.attachBleOta(&_ble_ota);
     _ble.begin();
     _timemore.begin(); // starts scanning immediately - fine if no Timemore Dot is around, update() just keeps retrying
-    _ota.begin();
-    _ble.attachOta(&_ota);
-    _ota.setStatusCallback([this]() { _ble.notifyOtaStatus(); });
 
     if (_storage.restore(_calibration)) {
         _scale.setCalibrationFactor(_calibration.scale_factor);
@@ -271,23 +268,6 @@ void GrinderController::processBleCommands() {
                 _smoothing_alpha = alpha;
                 break;
             }
-
-            case BLE_OP_OTA_START:
-                Serial.println("[OTA] BLE_OP_OTA_START received");
-                // Refuse while the motor could be running - OtaManager's WiFi
-                // update is a blocking call once it starts, and would stall
-                // MOTOR_MAX_RUNTIME_MS's safety cutoff if the grinder were mid-shot.
-                if (_status.state == STATE_IDLE || _status.state == STATE_ESPRESSO_IDLE) {
-                    _ota.start();
-                } else {
-                    Serial.printf("[OTA] start refused - state=%d not idle\n", (int)_status.state);
-                }
-                break;
-
-            case BLE_OP_OTA_CANCEL:
-                Serial.println("[OTA] BLE_OP_OTA_CANCEL received");
-                _ota.cancel();
-                break;
 
             default:
                 break;
@@ -617,11 +597,9 @@ void GrinderController::update() {
                     _calibration.cup_profiles[_calibration.active_cup_profile_id],
                     _calibration.active_cup_profile_id,
                     _weight_source, _timemore.isConnected()); // rate-limited, after the stop check on purpose
-    _ota.update(); // no-op unless an OTA_START was accepted; blocks this loop only mid-flash
     _ble.notifyStatus(_status, _calibration.active_cup_profile_id,
                        (uint8_t)_weight_source, _timemore.isConnected(),
                        _timemore.isEnabled(), _hx711_detected); // internally rate-limited
-    _ble.notifyOtaStatus(); // internally rate-limited
 
     // BLE firmware update: only allowed to BEGIN while nothing is running;
     // update() handles the data timeout and the post-success reboot.

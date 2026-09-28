@@ -8,18 +8,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.agung.smartgrinder.GrinderViewModel
 import com.agung.smartgrinder.ble.BleOtaState
 import com.agung.smartgrinder.ble.BleOtaStatus
 import com.agung.smartgrinder.ble.ConnectionState
 import com.agung.smartgrinder.ble.bleOtaErrorText
-import com.agung.smartgrinder.ble.OtaState
-import com.agung.smartgrinder.ble.OtaStatus
 import com.agung.smartgrinder.ble.WeightSource
-import com.agung.smartgrinder.ble.otaErrorHint
 import com.agung.smartgrinder.ui.components.AppButton
 import com.agung.smartgrinder.ui.components.NeutralOutlinedButton
 import com.agung.smartgrinder.ui.components.SectionCard
@@ -50,9 +45,6 @@ fun SettingsScreen(
     onCalAddPoint: (Float) -> Unit,
     onCalClear: () -> Unit,
     onCalSave: () -> Unit,
-    otaStatus: OtaStatus?,
-    onOtaStart: (ssid: String, password: String, url: String) -> Unit,
-    onOtaCancel: () -> Unit,
     firmwareFileInfo: GrinderViewModel.FirmwareFileInfo?,
     bleOtaStatus: BleOtaStatus?,
     bleOtaSentBytes: Long,
@@ -185,16 +177,6 @@ fun SettingsScreen(
             )
         }
 
-        if (connectionState == ConnectionState.CONNECTED) {
-            item {
-                OtaSection(
-                    otaStatus = otaStatus,
-                    onOtaStart = onOtaStart,
-                    onOtaCancel = onOtaCancel
-                )
-            }
-        }
-
         if (currentWeightG == null) return@LazyColumn
 
         item {
@@ -324,110 +306,6 @@ private fun BleOtaSection(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-    }
-}
-
-/**
- * WiFi OTA: the grinder is BLE-only day-to-day, but can bring up WiFi on
- * demand to pull a new firmware binary over HTTP(S) - see include/ota.h /
- * src/ota.cpp. Credentials and the firmware URL are sent fresh every time,
- * never persisted on the app side, and only held in RAM on the grinder.
- */
-@Composable
-private fun OtaSection(
-    otaStatus: OtaStatus?,
-    onOtaStart: (ssid: String, password: String, url: String) -> Unit,
-    onOtaCancel: () -> Unit
-) {
-    var ssid by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
-
-    val state = otaStatus?.state ?: OtaState.IDLE
-    val inProgress = state == OtaState.CONNECTING_WIFI || state == OtaState.UPDATING
-
-    SectionCard(label = "Firmware update (WiFi)") {
-        Text(
-            "WiFi is only turned on for this - the grinder stays BLE-only otherwise. Enter your WiFi network and the firmware file URL, then start.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        OutlinedTextField(
-            value = ssid,
-            onValueChange = { ssid = it },
-            label = { Text("WiFi SSID") },
-            singleLine = true,
-            enabled = !inProgress,
-            keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
-            modifier = Modifier.fillMaxWidth()
-        )
-        var passwordVisible by remember { mutableStateOf(false) }
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("WiFi password") },
-            singleLine = true,
-            enabled = !inProgress,
-            // Without this, the default keyboard can autocapitalize the
-            // first character or autocorrect the string, silently changing
-            // the password before it's ever sent - looks identical to a
-            // wrong-password WiFi auth failure on the firmware side.
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = {
-                TextButton(onClick = { passwordVisible = !passwordVisible }) {
-                    Text(if (passwordVisible) "Hide" else "Show", style = MaterialTheme.typography.labelSmall)
-                }
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            value = url,
-            onValueChange = { url = it },
-            label = { Text("Firmware .bin URL") },
-            singleLine = true,
-            enabled = !inProgress,
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        if (otaStatus != null && state != OtaState.IDLE) {
-            val isError = state == OtaState.ERROR_WIFI || state == OtaState.ERROR_UPDATE || state == OtaState.ERROR_NO_CONFIG
-            val color = when {
-                state == OtaState.SUCCESS -> MaterialTheme.status.success
-                isError -> MaterialTheme.status.danger
-                else -> MaterialTheme.colorScheme.primary
-            }
-            val label = if (state == OtaState.UPDATING) "${state.label} ${otaStatus.progressPercent}%" else state.label
-            Text(label, color = color, style = MaterialTheme.typography.bodyMedium)
-
-            if (state == OtaState.UPDATING) {
-                LinearProgressIndicator(
-                    progress = { otaStatus.progressPercent / 100f },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            if (state == OtaState.ERROR_UPDATE) {
-                val hint = otaErrorHint(otaStatus.lastErrorCode)
-                Text(
-                    "Error code ${otaStatus.lastErrorCode}" + (hint?.let { " - $it" } ?: ""),
-                    color = MaterialTheme.status.danger,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppButton(
-                "Start update",
-                onClick = { onOtaStart(ssid, password, url) },
-                enabled = !inProgress && ssid.isNotBlank() && url.isNotBlank()
-            )
-            if (state == OtaState.CONNECTING_WIFI) {
-                NeutralOutlinedButton("Cancel", onClick = onOtaCancel)
-            }
         }
     }
 }

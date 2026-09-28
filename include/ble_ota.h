@@ -6,16 +6,24 @@
 #include <freertos/semphr.h>
 
 // Firmware update streamed straight from the app over BLE - no WiFi, no
-// HTTP server, no router in the loop (the WiFi OTA in ota.h kept failing on
-// exactly those). The grinder lives inside the machine on its own 5V
-// supply, so this is the normal update path; USB is the fallback.
+// HTTP server, no router in the loop (the old WiFi OTA kept failing on
+// exactly those and was removed, which also cut the image from 1.17MB to
+// ~690KB). The grinder lives inside the machine on its own 5V supply, so
+// this is the only wireless update path; USB is the fallback.
 //
 // Protocol (see BleServer for the characteristics):
 //   BleOtaCtrl write  0x01 BEGIN  + uint32 size (LE) + 32 ASCII hex MD5
+//                                  [+ uint16 ack_every (LE), optional]
 //                     0x02 END    - verify MD5, mark the new slot bootable
 //                     0x03 ABORT
 //   BleOtaData write  raw image bytes, in order, any chunk size
 //   BleOtaCtrl notify BleOtaWireStatus (state, error, bytes received)
+// With ack_every set, the app streams data as write-without-response and
+// pauses every ack_every bytes until a status notify confirms they all
+// landed - sent immediately from the data callback, not throttled. That
+// windowing is what makes the transfer several times faster than one
+// acknowledged write per chunk, while a lost chunk still shows up within
+// one window instead of only as an MD5 failure at the very end.
 // On END success the board reboots into the new image ~1s later. Anything
 // short of a verified END leaves the running firmware untouched - the new
 // slot only becomes bootable inside Update.end().
@@ -66,6 +74,9 @@ public:
     void update(uint32_t now);
 
     BleOtaWireStatus getStatus() const;
+    // True once per completed ack window (see ack_every) - the data write
+    // callback then notifies status right away.
+    bool takeAckDue();
     // Bumped on every state change so the notifier can bypass its throttle
     // for transitions (only same-state progress updates get throttled).
     uint32_t getStateVersion() const { return _state_version; }
@@ -81,6 +92,9 @@ private:
     volatile uint32_t _last_data_ms = 0;
     volatile uint32_t _success_ms = 0;
     volatile uint32_t _state_version = 0;
+    uint16_t _ack_every = 0;      // 0 = app doesn't window (older app), no immediate acks
+    uint32_t _last_ack_at = 0;
+    volatile bool _ack_due = false;
 
     void fail(BleOtaError err); // caller holds _lock
     void setState(BleOtaState s) { _state = s; _state_version++; }

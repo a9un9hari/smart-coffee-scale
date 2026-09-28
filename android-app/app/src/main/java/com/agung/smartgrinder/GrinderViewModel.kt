@@ -131,7 +131,6 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
     val connectionState: StateFlow<ConnectionState> = ble.connectionState
     val status: StateFlow<GrinderStatus?> = ble.status
     val calibrationStatus: StateFlow<CalibrationStatus?> = ble.calibrationStatus
-    val otaStatus: StateFlow<OtaStatus?> = ble.otaStatus
 
     // ---- Firmware update over BLE ----
     // The image is dropped into the app's own external files dir (adb push,
@@ -306,18 +305,6 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
     fun calClear() = ble.calClear()
     fun calAddPoint(knownWeightG: Float) = ble.calAddPoint(knownWeightG)
     fun calSave() = ble.calSave()
-
-    // Sent as one shot right before the start command, instead of on every
-    // keystroke - fewer BLE writes, and no risk of the firmware ending up
-    // with a stale/partial value if an intermediate keystroke write is lost
-    // (GrinderBleManager doesn't check write status, see its onCharacteristicWrite).
-    fun otaStart(ssid: String, password: String, url: String) {
-        ble.setOtaSsid(ssid)
-        ble.setOtaPassword(password)
-        ble.setOtaUrl(url)
-        ble.otaStart()
-    }
-    fun otaCancel() = ble.otaCancel()
 
     fun saveCupProfile(id: Int, name: String, cupWeightG: Float, toleranceG: Float) {
         ble.sendCommand(BleCommand.setCupProfileName(id, name))

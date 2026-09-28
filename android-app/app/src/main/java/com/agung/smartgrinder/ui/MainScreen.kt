@@ -44,7 +44,6 @@ fun MainScreen(
     val status by viewModel.status.collectAsState()
     val cupProfiles by viewModel.cupProfiles.collectAsState()
     val calibrationStatus by viewModel.calibrationStatus.collectAsState()
-    val otaStatus by viewModel.otaStatus.collectAsState()
     val shotSamples by viewModel.shotSamples.collectAsState()
     val darkTheme by viewModel.darkTheme.collectAsState()
     val smoothingAlpha by viewModel.smoothingAlpha.collectAsState()
@@ -125,9 +124,6 @@ fun MainScreen(
                     onCalAddPoint = viewModel::calAddPoint,
                     onCalClear = viewModel::calClear,
                     onCalSave = viewModel::calSave,
-                    otaStatus = otaStatus,
-                    onOtaStart = viewModel::otaStart,
-                    onOtaCancel = viewModel::otaCancel,
                     firmwareFileInfo = firmwareFileInfo,
                     bleOtaStatus = bleOtaStatus,
                     bleOtaSentBytes = bleOtaSentBytes,

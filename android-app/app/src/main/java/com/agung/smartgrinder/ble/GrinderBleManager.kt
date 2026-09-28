@@ -30,6 +30,13 @@ private const val OP_TIMEOUT_MS = 4000L
 private const val REQUESTED_MTU = 247
 private const val MTU_FALLBACK_MS = 3000L
 
+// BLE OTA windowed sender (see OtaSend). 16 chunks x 244 bytes ~= 3.9KB
+// in flight at most.
+private const val OTA_WINDOW_CHUNKS = 16
+private const val OTA_STALL_TIMEOUT_MS = 5000L
+private const val OTA_CHUNK_RETRIES = 100
+private const val OTA_CHUNK_RETRY_DELAY_MS = 5L
+
 /**
  * BLE central for the grinder. Talks to the GATT server defined in
  * include/ble.h / src/ble.cpp on the firmware side - see BleProtocol.kt for
@@ -55,8 +62,6 @@ class GrinderBleManager(private val context: Context) {
     private var commandChar: BluetoothGattCharacteristic? = null
     private var cupProfileChar: BluetoothGattCharacteristic? = null
     private var calibrationStatusChar: BluetoothGattCharacteristic? = null
-    private var otaConfigChar: BluetoothGattCharacteristic? = null
-    private var otaStatusChar: BluetoothGattCharacteristic? = null
     private var grindLogChar: BluetoothGattCharacteristic? = null
     private var bleOtaCtrlChar: BluetoothGattCharacteristic? = null
     private var bleOtaDataChar: BluetoothGattCharacteristic? = null
@@ -72,8 +77,6 @@ class GrinderBleManager(private val context: Context) {
     private val _calibrationStatus = MutableStateFlow<CalibrationStatus?>(null)
     val calibrationStatus: StateFlow<CalibrationStatus?> = _calibrationStatus.asStateFlow()
 
-    private val _otaStatus = MutableStateFlow<OtaStatus?>(null)
-    val otaStatus: StateFlow<OtaStatus?> = _otaStatus.asStateFlow()
 
     // Raw GrindLog notifications (CSV rows / BleGrindLog.END) - a sync can
     // burst a few hundred in a row, hence the generous buffer.
@@ -202,7 +205,6 @@ class GrinderBleManager(private val context: Context) {
                     negotiatedMtu = 23
                     _connectionState.value = ConnectionState.DISCONNECTED
                     _status.value = null
-                    _otaStatus.value = null
                     gatt = null
                     resetQueue()
                 }
@@ -227,8 +229,6 @@ class GrinderBleManager(private val context: Context) {
             commandChar = service?.getCharacteristic(GrinderBleUuids.COMMAND)
             cupProfileChar = service?.getCharacteristic(GrinderBleUuids.CUP_PROFILE_QUERY)
             calibrationStatusChar = service?.getCharacteristic(GrinderBleUuids.CALIBRATION_STATUS)
-            otaConfigChar = service?.getCharacteristic(GrinderBleUuids.OTA_CONFIG)
-            otaStatusChar = service?.getCharacteristic(GrinderBleUuids.OTA_STATUS)
             grindLogChar = service?.getCharacteristic(GrinderBleUuids.GRIND_LOG) // null on firmware older than the log sync
             bleOtaCtrlChar = service?.getCharacteristic(GrinderBleUuids.BLE_OTA_CTRL) // null on firmware older than BLE OTA
             bleOtaDataChar = service?.getCharacteristic(GrinderBleUuids.BLE_OTA_DATA)
@@ -238,7 +238,6 @@ class GrinderBleManager(private val context: Context) {
             // callback would silently drop the later ones.
             statusChar?.let { enqueue { enableNotify(g, it) } }
             calibrationStatusChar?.let { enqueue { enableNotify(g, it) } }
-            otaStatusChar?.let { enqueue { enableNotify(g, it) } }
             grindLogChar?.let { enqueue { enableNotify(g, it) } }
             bleOtaCtrlChar?.let { enqueue { enableNotify(g, it) } }
 
@@ -310,9 +309,11 @@ class GrinderBleManager(private val context: Context) {
         when (uuid) {
             GrinderBleUuids.STATUS -> decodeStatus(value)?.let { _status.value = it }
             GrinderBleUuids.CALIBRATION_STATUS -> decodeCalibrationStatus(value)?.let { _calibrationStatus.value = it }
-            GrinderBleUuids.OTA_STATUS -> decodeOtaStatus(value)?.let { _otaStatus.value = it }
             GrinderBleUuids.GRIND_LOG -> _grindLogLines.tryEmit(String(value, Charsets.US_ASCII))
-            GrinderBleUuids.BLE_OTA_CTRL -> decodeBleOtaStatus(value)?.let { _bleOtaStatus.value = it }
+            GrinderBleUuids.BLE_OTA_CTRL -> decodeBleOtaStatus(value)?.let {
+                _bleOtaStatus.value = it
+                onOtaStatus(it)
+            }
         }
     }
 
@@ -321,28 +322,36 @@ class GrinderBleManager(private val context: Context) {
     fun calAddPoint(knownWeightG: Float) = sendCommand(BleCommand.calAddPoint(knownWeightG))
     fun calSave() = sendCommand(BleCommand.calSave())
 
-    fun otaStart() = sendCommand(BleCommand.otaStart())
-    fun otaCancel() = sendCommand(BleCommand.otaCancel())
-
-    fun setOtaSsid(ssid: String) = sendOtaConfig(BleOtaConfig.ssid(ssid))
-    fun setOtaPassword(password: String) = sendOtaConfig(BleOtaConfig.password(password))
-    fun setOtaUrl(url: String) = sendOtaConfig(BleOtaConfig.url(url))
-
-    @SuppressLint("MissingPermission")
-    private fun sendOtaConfig(bytes: ByteArray) {
-        val g = gatt ?: return
-        val ch = otaConfigChar ?: return
-        enqueue { writeChar(g, ch, bytes) }
-    }
-
     val supportsBleOta: Boolean get() = bleOtaCtrlChar != null && bleOtaDataChar != null
 
+    // ---- BLE OTA windowed sender ----
+    // Chunks go out as write-without-response (no per-chunk round trip -
+    // the old one-acknowledged-write-per-chunk sender managed ~7 KB/s), in
+    // windows of OTA_WINDOW_CHUNKS; the next window is only queued once a
+    // status notify shows the firmware has received everything so far. So
+    // at most one window is ever in flight, and a lost chunk shows up as a
+    // stall within one window rather than an MD5 failure at the very end.
+    private class OtaSend(
+        val g: BluetoothGatt,
+        val ctrl: BluetoothGattCharacteristic,
+        val data: BluetoothGattCharacteristic,
+        val image: ByteArray,
+        val chunkSize: Int,
+        val windowBytes: Int
+    ) {
+        var nextOffset = 0
+        var awaitingReceived = 0L // the next window is sent once the firmware reports this many bytes
+        var endQueued = false
+    }
+
+    private var otaSend: OtaSend? = null
+    private val otaHandler = Handler(Looper.getMainLooper())
+    private val otaStallCheck = Runnable { onOtaStalled() }
+
     /**
-     * Streams a firmware image: BEGIN, every chunk (write-with-response, so
-     * each one is acknowledged before the next - reliable, and the queue's
-     * per-op timeout still guards against a lost callback), then END.
-     * Requests a high-priority (short interval) connection for the duration,
-     * which is what makes this ~1-2 min instead of several.
+     * Streams a firmware image: BEGIN, windowed chunks (see OtaSend), then
+     * END once the firmware confirms the last byte. Requests a high-priority
+     * (short interval) connection for the duration.
      */
     @SuppressLint("MissingPermission")
     fun startBleOta(image: ByteArray, md5Hex: String): Boolean {
@@ -350,32 +359,87 @@ class GrinderBleManager(private val context: Context) {
         val ctrl = bleOtaCtrlChar ?: return false
         val data = bleOtaDataChar ?: return false
         val chunkSize = (negotiatedMtu - 3).coerceIn(20, 512)
+        val send = OtaSend(g, ctrl, data, image, chunkSize, chunkSize * OTA_WINDOW_CHUNKS)
 
         _bleOtaSentBytes.value = 0L
         _bleOtaStatus.value = null
+        otaSend = send
         g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-        enqueue { writeChar(g, ctrl, BleOtaProtocol.begin(image.size, md5Hex)) }
-        var offset = 0
-        while (offset < image.size) {
-            val end = minOf(offset + chunkSize, image.size)
-            val chunk = image.copyOfRange(offset, end)
+        // The first window goes out once the firmware's RECEIVING notify
+        // (received = 0) confirms BEGIN was accepted - see onOtaStatus().
+        enqueue { writeChar(g, ctrl, BleOtaProtocol.begin(image.size, md5Hex, send.windowBytes)) }
+        armOtaStallCheck()
+        return true
+    }
+
+    private fun onOtaStatus(s: BleOtaStatus) {
+        val send = otaSend ?: return
+        if (s.state == BleOtaState.ERROR || s.state == BleOtaState.SUCCESS) {
+            otaSend = null
+            otaHandler.removeCallbacks(otaStallCheck)
+            return
+        }
+        if (s.state != BleOtaState.RECEIVING) return
+        synchronized(send) {
+            if (s.received < send.awaitingReceived) return // a stale/duplicate notify from an earlier window
+            if (send.nextOffset < send.image.size) {
+                sendOtaWindow(send)
+            } else if (!send.endQueued) {
+                send.endQueued = true
+                enqueue {
+                    writeChar(send.g, send.ctrl, BleOtaProtocol.end())
+                    send.g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+                }
+            }
+        }
+    }
+
+    private fun sendOtaWindow(send: OtaSend) {
+        val windowEnd = minOf(send.nextOffset + send.windowBytes, send.image.size)
+        var offset = send.nextOffset
+        while (offset < windowEnd) {
+            val end = minOf(offset + send.chunkSize, windowEnd)
+            val chunk = send.image.copyOfRange(offset, end)
             val sentAfter = end.toLong()
             enqueue {
                 _bleOtaSentBytes.value = sentAfter
-                writeChar(g, data, chunk)
+                writeOtaChunk(send.g, send.data, chunk, attempt = 0)
             }
             offset = end
         }
-        enqueue {
-            writeChar(g, ctrl, BleOtaProtocol.end())
-            g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+        send.nextOffset = windowEnd
+        send.awaitingReceived = windowEnd.toLong()
+        armOtaStallCheck()
+    }
+
+    // writeCharacteristic refuses (returns false / BUSY) while the stack's
+    // outgoing buffer is full - retry briefly instead of letting the queue's
+    // op timeout skip the chunk, which would corrupt the image.
+    @SuppressLint("MissingPermission")
+    private fun writeOtaChunk(g: BluetoothGatt, ch: BluetoothGattCharacteristic, chunk: ByteArray, attempt: Int) {
+        if (writeChar(g, ch, chunk, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)) return
+        if (attempt < OTA_CHUNK_RETRIES) {
+            otaHandler.postDelayed({ writeOtaChunk(g, ch, chunk, attempt + 1) }, OTA_CHUNK_RETRY_DELAY_MS)
         }
-        return true
+    }
+
+    private fun armOtaStallCheck() {
+        otaHandler.removeCallbacks(otaStallCheck)
+        otaHandler.postDelayed(otaStallCheck, OTA_STALL_TIMEOUT_MS)
+    }
+
+    private fun onOtaStalled() {
+        if (otaSend == null) return
+        val last = _bleOtaStatus.value
+        cancelBleOta()
+        _bleOtaStatus.value = BleOtaStatus(BleOtaState.ERROR, BLE_OTA_ERR_APP_STALLED, last?.received ?: 0L, last?.total ?: 0L)
     }
 
     /** Drops every still-queued chunk and tells the firmware to abandon the update. */
     @SuppressLint("MissingPermission")
     fun cancelBleOta() {
+        otaSend = null
+        otaHandler.removeCallbacks(otaStallCheck)
         val g = gatt ?: return
         val ctrl = bleOtaCtrlChar ?: return
         resetQueue()
@@ -417,15 +481,21 @@ class GrinderBleManager(private val context: Context) {
         }
     }
 
+    /** Returns whether the stack accepted the write (it refuses while busy). */
     @SuppressLint("MissingPermission")
-    private fun writeChar(g: BluetoothGatt, ch: BluetoothGattCharacteristic, bytes: ByteArray) {
-        if (Build.VERSION.SDK_INT >= 33) {
-            g.writeCharacteristic(ch, bytes, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+    private fun writeChar(
+        g: BluetoothGatt,
+        ch: BluetoothGattCharacteristic,
+        bytes: ByteArray,
+        writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+    ): Boolean {
+        return if (Build.VERSION.SDK_INT >= 33) {
+            g.writeCharacteristic(ch, bytes, writeType) == BluetoothStatusCodes.SUCCESS
         } else {
             @Suppress("DEPRECATION")
             ch.value = bytes
             @Suppress("DEPRECATION")
-            ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            ch.writeType = writeType
             @Suppress("DEPRECATION")
             g.writeCharacteristic(ch)
         }

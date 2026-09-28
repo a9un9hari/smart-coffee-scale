@@ -47,6 +47,12 @@ void BleOta::onControlWrite(const uint8_t *data, size_t len) {
             _received = 0;
             _total = size;
             _error = BLE_OTA_ERR_NONE;
+            _ack_every = 0;
+            if (len >= 1 + 4 + 32 + 2) {
+                memcpy(&_ack_every, data + 37, 2);
+            }
+            _last_ack_at = 0;
+            _ack_due = false;
             if (!Update.begin(size, U_FLASH)) {
                 Serial.printf("[BLE-OTA] Update.begin(%lu) failed: %s\n", (unsigned long)size, Update.errorString());
                 fail(BLE_OTA_ERR_BEGIN);
@@ -55,7 +61,7 @@ void BleOta::onControlWrite(const uint8_t *data, size_t len) {
             Update.setMD5(md5);
             _last_data_ms = millis();
             setState(BLE_OTA_RECEIVING);
-            Serial.printf("[BLE-OTA] BEGIN size=%lu md5=%s\n", (unsigned long)size, md5);
+            Serial.printf("[BLE-OTA] BEGIN size=%lu md5=%s ack_every=%u\n", (unsigned long)size, md5, _ack_every);
             break;
         }
 
@@ -104,6 +110,10 @@ void BleOta::onDataWrite(const uint8_t *data, size_t len) {
     } else {
         _received += len;
         _last_data_ms = millis();
+        if (_ack_every > 0 && (_received - _last_ack_at >= _ack_every || _received == _total)) {
+            _last_ack_at = _received;
+            _ack_due = true;
+        }
     }
     xSemaphoreGive(_lock);
 }
@@ -136,6 +146,14 @@ void BleOta::update(uint32_t /*now*/) {
         Serial.flush();
         ESP.restart();
     }
+}
+
+bool BleOta::takeAckDue() {
+    if (!_ack_due) {
+        return false;
+    }
+    _ack_due = false;
+    return true;
 }
 
 BleOtaWireStatus BleOta::getStatus() const {

@@ -15,8 +15,7 @@ object GrinderBleUuids {
     val COMMAND: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0002")
     val CUP_PROFILE_QUERY: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0003")
     val CALIBRATION_STATUS: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0004")
-    val OTA_CONFIG: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0005")
-    val OTA_STATUS: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0006")
+    // ...0005 / ...0006 were the WiFi OTA config/status characteristics - removed, BLE OTA replaced them.
     val GRIND_LOG: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0007")
     val BLE_OTA_CTRL: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0008")
     val BLE_OTA_DATA: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0009")
@@ -129,60 +128,6 @@ fun decodeCalibrationStatus(bytes: ByteArray): CalibrationStatus? {
     return CalibrationStatus(pointCount, lastSaveOk, lastRaw, lastWeight)
 }
 
-enum class OtaState(val wireValue: Int, val label: String) {
-    IDLE(0, "Idle"),
-    CONNECTING_WIFI(1, "Connecting to WiFi..."),
-    UPDATING(2, "Updating firmware..."),
-    SUCCESS(3, "Update successful"),
-    ERROR_WIFI(4, "Couldn't connect to WiFi"),
-    ERROR_UPDATE(5, "Update failed"),
-    ERROR_NO_CONFIG(6, "Missing WiFi/URL config");
-
-    companion object {
-        fun fromWire(v: Int) = entries.firstOrNull { it.wireValue == v } ?: ERROR_UPDATE
-    }
-}
-
-data class OtaStatus(val state: OtaState, val progressPercent: Int, val lastErrorCode: Int)
-
-/** Parses a 3-byte OtaStatus characteristic notification/read. Null if malformed. */
-fun decodeOtaStatus(bytes: ByteArray): OtaStatus? {
-    if (bytes.size < 3) return null
-    val state = bytes[0].toInt() and 0xFF
-    val progress = bytes[1].toInt() and 0xFF
-    val errorCode = bytes[2].toInt() // signed - matches firmware's int8_t HTTPUpdate/HTTPClient error codes
-    return OtaStatus(OtaState.fromWire(state), progress, errorCode)
-}
-
-/**
- * Mirrors HTTPUpdate.h / HTTPClient.h's own error codes (include/ota.h on the
- * firmware side casts httpUpdate.getLastError() straight into an int8_t) -
- * turns the bare number into something the person tapping "Start update"
- * can actually act on instead of just "Update failed".
- */
-fun otaErrorHint(code: Int): String? = when (code) {
-    -1 -> "connection refused - check the URL host/port"
-    -2 -> "failed sending request headers"
-    -3 -> "failed sending request"
-    -4 -> "not connected to server"
-    -5 -> "connection lost mid-download"
-    -6, -7 -> "server didn't respond like an HTTP server"
-    -8 -> "device out of RAM"
-    -9 -> "bad content encoding"
-    -10 -> "flash write failed"
-    -11 -> "timed out waiting for server"
-    -100 -> "firmware file too big for the free partition space"
-    -101 -> "server didn't report a file size"
-    -102 -> "404 - firmware file not found at that URL"
-    -103 -> "403 - server forbade the request"
-    -104 -> "unexpected HTTP status from server"
-    -105 -> "MD5 checksum mismatch - corrupted download"
-    -106 -> "not a valid firmware image"
-    -107 -> "firmware built for the wrong flash chip/size"
-    -108 -> "no free OTA partition on the device"
-    else -> null
-}
-
 /** Builds Command characteristic write payloads - every one is <=20 bytes, no MTU negotiation needed. */
 object BleCommand {
     private const val OP_SET_TARGET_WEIGHT: Int = 1
@@ -198,8 +143,7 @@ object BleCommand {
     private const val OP_CAL_ADD_POINT: Int = 11
     private const val OP_CAL_SAVE: Int = 12
     private const val OP_SET_SMOOTHING_ALPHA: Int = 13
-    private const val OP_OTA_START: Int = 14
-    private const val OP_OTA_CANCEL: Int = 15
+    // 14/15 were WiFi OTA start/cancel - retired.
     private const val OP_SET_WEIGHT_SOURCE: Int = 16
     private const val OP_SET_TIMEMORE_AUTOCONNECT: Int = 17
 
@@ -246,12 +190,6 @@ object BleCommand {
         ByteBuffer.allocate(5).order(ByteOrder.LITTLE_ENDIAN)
             .put(OP_SET_SMOOTHING_ALPHA.toByte()).putFloat(alpha).array()
 
-    /** SSID/password/URL must already be written via BleOtaConfig before this does anything. */
-    fun otaStart(): ByteArray = byteArrayOf(OP_OTA_START.toByte())
-
-    /** Only stops an in-progress WiFi connect attempt - can't interrupt an update already flashing. */
-    fun otaCancel(): ByteArray = byteArrayOf(OP_OTA_CANCEL.toByte())
-
     /** Not persisted on the firmware side - resend after every connect (GrinderViewModel does this). */
     fun setWeightSource(source: WeightSource): ByteArray =
         byteArrayOf(OP_SET_WEIGHT_SOURCE.toByte(), source.wireValue.toByte())
@@ -259,30 +197,6 @@ object BleCommand {
     /** Not persisted on the firmware side - resend after every connect (GrinderViewModel does this). */
     fun setTimemoreAutoConnect(enabled: Boolean): ByteArray =
         byteArrayOf(OP_SET_TIMEMORE_AUTOCONNECT.toByte(), if (enabled) 1 else 0)
-}
-
-/**
- * Builds OtaConfig characteristic writes: a field-id byte + raw UTF-8 string
- * bytes (not null-terminated on the wire - firmware's OtaManager setters take
- * an explicit length). Needs the bumped MTU (see GrinderBleManager) since
- * these can run past the default 20-byte payload limit.
- */
-object BleOtaConfig {
-    private const val FIELD_SSID: Int = 0
-    private const val FIELD_PASSWORD: Int = 1
-    private const val FIELD_URL: Int = 2
-
-    // One less than OtaManager's fixed buffers (include/ota.h) to leave room
-    // for the firmware's own null terminator.
-    fun ssid(value: String): ByteArray = field(FIELD_SSID, value, 32)
-    fun password(value: String): ByteArray = field(FIELD_PASSWORD, value, 64)
-    fun url(value: String): ByteArray = field(FIELD_URL, value, 128)
-
-    private fun field(fieldId: Int, value: String, maxLen: Int): ByteArray {
-        val raw = value.toByteArray(Charsets.UTF_8)
-        val truncated = if (raw.size > maxLen) raw.copyOf(maxLen) else raw
-        return byteArrayOf(fieldId.toByte()) + truncated
-    }
 }
 
 /**
@@ -311,12 +225,19 @@ object BleOtaProtocol {
     private const val OP_END: Int = 2
     private const val OP_ABORT: Int = 3
 
-    /** md5Hex must be 32 lowercase hex chars - the firmware compares it as-is. */
-    fun begin(size: Int, md5Hex: String): ByteArray =
-        ByteBuffer.allocate(1 + 4 + 32).order(ByteOrder.LITTLE_ENDIAN)
+    /**
+     * md5Hex must be 32 lowercase hex chars - the firmware compares it as-is.
+     * ackEveryBytes asks the firmware to confirm each window of that many
+     * bytes right away (see GrinderBleManager.startBleOta); firmware older
+     * than that ignores the extra field and only reports progress on its
+     * 250ms throttle, which the windowed sender still works with, just slower.
+     */
+    fun begin(size: Int, md5Hex: String, ackEveryBytes: Int): ByteArray =
+        ByteBuffer.allocate(1 + 4 + 32 + 2).order(ByteOrder.LITTLE_ENDIAN)
             .put(OP_BEGIN.toByte())
             .putInt(size)
             .put(md5Hex.lowercase().toByteArray(Charsets.US_ASCII))
+            .putShort(ackEveryBytes.toShort())
             .array()
 
     fun end(): ByteArray = byteArrayOf(OP_END.toByte())
@@ -344,6 +265,9 @@ fun decodeBleOtaStatus(bytes: ByteArray): BleOtaStatus? {
     return BleOtaStatus(BleOtaState.fromWire(state), error, received, total)
 }
 
+/** App-side only (not sent by the firmware): the windowed sender got no confirmation in time. */
+const val BLE_OTA_ERR_APP_STALLED = 100
+
 /** Mirrors BleOtaError in include/ble_ota.h. */
 fun bleOtaErrorText(code: Int): String = when (code) {
     1 -> "grinder is running - try again when it's idle"
@@ -355,5 +279,6 @@ fun bleOtaErrorText(code: Int): String = when (code) {
     7 -> "cancelled / connection dropped"
     8 -> "grinder got data without a start command"
     9 -> "malformed start command"
+    BLE_OTA_ERR_APP_STALLED -> "transfer stalled - the grinder stopped confirming data (a chunk was probably lost). Try again."
     else -> "error $code"
 }

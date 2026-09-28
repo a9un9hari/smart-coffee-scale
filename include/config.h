@@ -134,8 +134,6 @@
 #define DISPLAY_SPLASH_MS       2000     // boot splash hold, non-blocking
 #define DISPLAY_DONE_HOLD_MS    15000    // keep showing the net dose + "DONE" this long after a grind
 #define BLE_NOTIFY_INTERVAL_MS  150      // status notify throttle (~6-7Hz)
-#define OTA_NOTIFY_INTERVAL_MS  500      // OTA status notify throttle - slow-moving state, no need for 6-7Hz
-#define OTA_WIFI_CONNECT_TIMEOUT_MS 15000 // give up and report OTA_ERROR_WIFI if WiFi doesn't associate in time
 
 // ============================================================
 // SYSTEM STATE MACHINE

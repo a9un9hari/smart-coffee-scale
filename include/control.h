@@ -9,7 +9,6 @@
 #include "state_machine.h"
 #include "ble.h"
 #include "storage.h"
-#include "ota.h"
 #include "timemore_scale.h"
 #include "display.h"
 #include "grind_log.h"
@@ -33,7 +32,6 @@ private:
     StateMachine _state_machine;
     BleServer _ble;
     Storage _storage;
-    OtaManager _ota;
     TimemoreScale _timemore;
     Display _display;
     GrindLog _grind_log;
