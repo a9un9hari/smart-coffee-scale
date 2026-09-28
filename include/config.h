@@ -14,9 +14,9 @@
 // avoid loading them externally where possible.
 // Usable: 0-10, 18-21 (18/19 reserved for USB as noted above)
 //
-// No physical UI (buttons/encoder/display) - control is entirely over
-// BLE from the companion Android app. Only two physical peripherals now:
-// HX711 load cell and the SSR motor relay.
+// No physical input (buttons/encoder) - control is entirely over BLE from
+// the companion Android app. Physical peripherals: HX711 load cell, the
+// motor relay, and an optional read-only SSD1306 OLED status screen.
 // ============================================================
 
 // HX711 Load Cell ADC
@@ -25,6 +25,12 @@
 
 // Motor control (SSR-40 DA relay)
 #define PIN_MOTOR_SSR       2
+
+// SSD1306 0.96" 128x64 I2C OLED (optional - firmware runs without it).
+// GPIO8 is a strapping pin with the onboard LED on it; fine for I2C.
+#define PIN_OLED_SDA        10
+#define PIN_OLED_SCL        8
+#define OLED_I2C_ADDR       0x3C
 
 // ============================================================
 // SENSOR CONSTANTS
@@ -87,6 +93,9 @@
 #define MOTOR_MAX_RUNTIME_MS    30000    // 30s safety timeout
 #define ESPRESSO_STABLE_MS      3000     // weight stable = shot done
 #define CUP_DETECT_SETTLE_MS    400      // weight must hold near cup profile this long before auto-start
+#define DISPLAY_REFRESH_MS      200      // OLED refresh (~5Hz) - each full refresh blocks ~25ms, see display.h
+#define DISPLAY_SPLASH_MS       2000     // boot splash hold, non-blocking
+#define DISPLAY_DONE_HOLD_MS    15000    // keep showing the net dose + "DONE" this long after a grind
 #define BLE_NOTIFY_INTERVAL_MS  150      // status notify throttle (~6-7Hz)
 #define OTA_NOTIFY_INTERVAL_MS  500      // OTA status notify throttle - slow-moving state, no need for 6-7Hz
 #define OTA_WIFI_CONNECT_TIMEOUT_MS 15000 // give up and report OTA_ERROR_WIFI if WiFi doesn't associate in time

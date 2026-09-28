@@ -11,6 +11,7 @@
 #include "storage.h"
 #include "ota.h"
 #include "timemore_scale.h"
+#include "display.h"
 
 // Orchestrates all subsystems: reads the load cell, watches for a known
 // dosing cup being placed (auto-start), drains BLE commands from the
@@ -33,6 +34,7 @@ private:
     Storage _storage;
     OtaManager _ota;
     TimemoreScale _timemore;
+    Display _display;
 
     // Which sensor feeds _status.current_weight_g - app-selectable via
     // BLE_OP_SET_WEIGHT_SOURCE, persisted in _prefs so phone-less grinding

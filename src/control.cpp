@@ -65,6 +65,8 @@ void GrinderController::begin() {
     _status.current_weight_g = 0.0f;
     _status.motor_running = false;
 
+    _display.begin(); // optional module - no-op everywhere if it isn't wired up
+
     _state_machine.init(&_status); // also sets mode=GRINDER, state=IDLE, error_code=0
     _state_machine.attachMotor(&_motor);
     _prev_state = _status.state;
@@ -446,6 +448,10 @@ void GrinderController::update() {
     readCupDetect(now);
     processBleCommands();
     runStateMachine(now);
+    _display.update(now, _status, _state_machine.getSessionStartWeightG(),
+                    _calibration.cup_profiles[_calibration.active_cup_profile_id],
+                    _calibration.active_cup_profile_id,
+                    _weight_source, _timemore.isConnected()); // rate-limited, after the stop check on purpose
     _ota.update(); // no-op unless an OTA_START was accepted; blocks this loop only mid-flash
     _ble.notifyStatus(_status, _calibration.active_cup_profile_id,
                        (uint8_t)_weight_source, _timemore.isConnected(),
