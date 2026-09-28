@@ -50,6 +50,12 @@ fun MainScreen(
     val smoothingAlpha by viewModel.smoothingAlpha.collectAsState()
     val timemoreAutoConnect by viewModel.timemoreAutoConnect.collectAsState()
     val grindHistory by viewModel.grindHistory.collectAsState()
+    val firmwareFileInfo by viewModel.firmwareFileInfo.collectAsState()
+    val bleOtaStatus by viewModel.bleOtaStatus.collectAsState()
+    val bleOtaSentBytes by viewModel.bleOtaSentBytes.collectAsState()
+    val bleOtaSending by viewModel.bleOtaSending.collectAsState()
+    val bleOtaAppError by viewModel.bleOtaAppError.collectAsState()
+    val bleOtaAppNotice by viewModel.bleOtaAppNotice.collectAsState()
     val grindLogSyncing by viewModel.grindLogSyncing.collectAsState()
 
     var autoConnectAttempted by rememberSaveable { mutableStateOf(false) }
@@ -121,7 +127,16 @@ fun MainScreen(
                     onCalSave = viewModel::calSave,
                     otaStatus = otaStatus,
                     onOtaStart = viewModel::otaStart,
-                    onOtaCancel = viewModel::otaCancel
+                    onOtaCancel = viewModel::otaCancel,
+                    firmwareFileInfo = firmwareFileInfo,
+                    bleOtaStatus = bleOtaStatus,
+                    bleOtaSentBytes = bleOtaSentBytes,
+                    bleOtaSending = bleOtaSending,
+                    bleOtaAppError = bleOtaAppError,
+                    bleOtaAppNotice = bleOtaAppNotice,
+                    onRefreshFirmwareFile = viewModel::refreshFirmwareFile,
+                    onBleOtaStart = viewModel::startBleOta,
+                    onBleOtaCancel = viewModel::cancelBleOta
                 )
             }
         }

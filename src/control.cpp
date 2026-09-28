@@ -18,6 +18,8 @@ void GrinderController::begin() {
     _scale.begin();
     _motor.begin();
     _storage.begin();
+    _ble_ota.begin(); // before BLE comes up, so its writes always find it ready
+    _ble.attachBleOta(&_ble_ota);
     _ble.begin();
     _timemore.begin(); // starts scanning immediately - fine if no Timemore Dot is around, update() just keeps retrying
     _ota.begin();
@@ -134,7 +136,7 @@ void GrinderController::readCupDetect(uint32_t now) {
     }
 
     const CupProfile &profile = _calibration.cup_profiles[_calibration.active_cup_profile_id];
-    if (profile.cup_weight_g < 0.0f || weightSourceLost()) {
+    if (profile.cup_weight_g < 0.0f || weightSourceLost() || _ble_ota.isActive()) {
         _cup_settling = false;
         return; // no profile configured for this slot, or the reading is stale
     }
@@ -176,6 +178,10 @@ void GrinderController::processBleCommands() {
                 Serial.printf("[CTRL] BLE_OP_START mode=%d state=%d\n", (int)_status.mode, (int)_status.state);
                 if (_status.mode == MODE_GRINDER && weightSourceLost()) {
                     Serial.println("[SAFETY] start refused: weight source not connected");
+                    break;
+                }
+                if (_ble_ota.isActive()) {
+                    Serial.println("[SAFETY] start refused: firmware update in progress");
                     break;
                 }
                 _state_machine.onEvent(EVT_BLE_START);
@@ -616,6 +622,14 @@ void GrinderController::update() {
                        (uint8_t)_weight_source, _timemore.isConnected(),
                        _timemore.isEnabled(), _hx711_detected); // internally rate-limited
     _ble.notifyOtaStatus(); // internally rate-limited
+
+    // BLE firmware update: only allowed to BEGIN while nothing is running;
+    // update() handles the data timeout and the post-success reboot.
+    bool motor_busy = _status.state == STATE_GRINDING || _status.state == STATE_PULL_SHOT ||
+                      _status.state == STATE_PULLING || _overshoot_eval_pending;
+    _ble_ota.setAllowed(!motor_busy);
+    _ble.notifyBleOtaStatus(); // before update(), which may reboot - the final status must go out first
+    _ble_ota.update(now);
 
     uint32_t after_boot, after_uptime_s;
     if (_ble.takeGrindLogRequest(after_boot, after_uptime_s)) {

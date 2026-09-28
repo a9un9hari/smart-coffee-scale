@@ -9,6 +9,8 @@
 #define OTA_CONFIG_CHAR_UUID     "c4a10000-1000-4a4a-8a1a-2f5e9b6d0005"
 #define OTA_STATUS_CHAR_UUID     "c4a10000-1000-4a4a-8a1a-2f5e9b6d0006"
 #define GRIND_LOG_CHAR_UUID      "c4a10000-1000-4a4a-8a1a-2f5e9b6d0007"
+#define BLE_OTA_CTRL_CHAR_UUID   "c4a10000-1000-4a4a-8a1a-2f5e9b6d0008"
+#define BLE_OTA_DATA_CHAR_UUID   "c4a10000-1000-4a4a-8a1a-2f5e9b6d0009"
 
 #pragma pack(push, 1)
 struct BleStatusWire {
@@ -210,17 +212,63 @@ private:
     BleServer *_server;
 };
 
+// BleOtaCtrl / BleOtaData writes go straight into BleOta (see ble_ota.h) -
+// it guards its own state with a mutex, since the main loop also touches
+// it (timeout, reboot).
+class BleOtaCtrlCallbacks : public NimBLECharacteristicCallbacks {
+public:
+    explicit BleOtaCtrlCallbacks(BleServer *server) : _server(server) {}
+
+    void onWrite(NimBLECharacteristic *characteristic) override {
+        BleOta *ota = _server->getBleOta();
+        if (ota == nullptr) {
+            return;
+        }
+        std::string raw = characteristic->getValue();
+        ota->onControlWrite((const uint8_t *)raw.data(), raw.size());
+    }
+
+private:
+    BleServer *_server;
+};
+
+class BleOtaDataCallbacks : public NimBLECharacteristicCallbacks {
+public:
+    explicit BleOtaDataCallbacks(BleServer *server) : _server(server) {}
+
+    void onWrite(NimBLECharacteristic *characteristic) override {
+        BleOta *ota = _server->getBleOta();
+        if (ota == nullptr) {
+            return;
+        }
+        std::string raw = characteristic->getValue();
+        ota->onDataWrite((const uint8_t *)raw.data(), raw.size());
+    }
+
+private:
+    BleServer *_server;
+};
+
 // NimBLE stops advertising once a central connects, and does NOT resume it
 // automatically on disconnect - without this, the device becomes invisible
 // to everyone else (or even to the same central reconnecting) the moment
 // any one client disconnects, until the board is rebooted.
 class ServerCallbacks : public NimBLEServerCallbacks {
+public:
+    explicit ServerCallbacks(BleServer *owner) : _owner(owner) {}
+
     void onDisconnect(NimBLEServer *server) override {
         NimBLEDevice::getAdvertising()->start();
+        if (_owner->getBleOta() != nullptr) {
+            _owner->getBleOta()->onDisconnect(); // a half-sent image can't resume
+        }
     }
     void onMTUChange(uint16_t mtu, ble_gap_conn_desc *desc) override {
         Serial.printf("[BLE] MTU negotiated: %d\n", mtu);
     }
+
+private:
+    BleServer *_owner;
 };
 
 void BleServer::begin() {
@@ -236,7 +284,7 @@ void BleServer::begin() {
     NimBLEDevice::setMTU(247);
 
     NimBLEServer *server = NimBLEDevice::createServer();
-    server->setCallbacks(new ServerCallbacks());
+    server->setCallbacks(new ServerCallbacks(this));
     NimBLEService *service = server->createService(GRINDER_SERVICE_UUID);
 
     _status_char = service->createCharacteristic(
@@ -270,6 +318,16 @@ void BleServer::begin() {
         GRIND_LOG_CHAR_UUID,
         NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
     _grind_log_char->setCallbacks(new GrindLogCallbacks(this));
+
+    _ble_ota_ctrl_char = service->createCharacteristic(
+        BLE_OTA_CTRL_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
+    _ble_ota_ctrl_char->setCallbacks(new BleOtaCtrlCallbacks(this));
+
+    NimBLECharacteristic *ble_ota_data_char = service->createCharacteristic(
+        BLE_OTA_DATA_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
+    ble_ota_data_char->setCallbacks(new BleOtaDataCallbacks(this));
 
     service->start();
 
@@ -312,6 +370,24 @@ void BleServer::notifyStatus(const SystemStatus &status, uint8_t active_cup_prof
 
     _status_char->setValue((uint8_t *)&wire, sizeof(wire));
     _status_char->notify();
+}
+
+void BleServer::notifyBleOtaStatus() {
+    if (_ble_ota_ctrl_char == nullptr || _ble_ota == nullptr) {
+        return;
+    }
+    uint32_t now = millis();
+    uint32_t version = _ble_ota->getStateVersion();
+    bool state_changed = version != _last_ble_ota_state_version;
+    if (!state_changed && (!_ble_ota->isActive() || now - _last_ble_ota_notify_ms < BLE_OTA_NOTIFY_INTERVAL_MS)) {
+        return; // nothing new, or a progress tick inside the throttle window
+    }
+    _last_ble_ota_notify_ms = now;
+    _last_ble_ota_state_version = version;
+
+    BleOtaWireStatus wire = _ble_ota->getStatus();
+    _ble_ota_ctrl_char->setValue((uint8_t *)&wire, sizeof(wire));
+    _ble_ota_ctrl_char->notify();
 }
 
 void BleServer::setGrindLogRequest(uint32_t after_boot, uint32_t after_uptime_s) {

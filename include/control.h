@@ -37,6 +37,7 @@ private:
     TimemoreScale _timemore;
     Display _display;
     GrindLog _grind_log;
+    BleOta _ble_ota;
 
     // Which sensor feeds _status.current_weight_g - app-selectable via
     // BLE_OP_SET_WEIGHT_SOURCE, persisted in _prefs so phone-less grinding

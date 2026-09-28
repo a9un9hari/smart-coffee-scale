@@ -1,4 +1,5 @@
 #include "display.h"
+#include "build_stamp.h"
 #include <Wire.h>
 
 Display::Display() : _oled(U8G2_R0, U8X8_PIN_NONE) {}
@@ -17,9 +18,14 @@ bool Display::begin() {
     _oled.begin();
     _oled.clearBuffer();
     _oled.setFont(u8g2_font_ncenB12_tr);
-    _oled.drawStr((128 - _oled.getStrWidth("La Mardjono")) / 2, 28, "La Mardjono");
+    _oled.drawStr((128 - _oled.getStrWidth("La Mardjono")) / 2, 24, "La Mardjono");
     _oled.setFont(u8g2_font_6x10_tr);
-    _oled.drawStr((128 - _oled.getStrWidth("Smart Grinder")) / 2, 46, "Smart Grinder");
+    _oled.drawStr((128 - _oled.getStrWidth("Smart Grinder")) / 2, 40, "Smart Grinder");
+    // Build stamp ("fw Sep 28 13:45") - after an OTA update the splash alone
+    // confirms which firmware is now running, no phone needed.
+    char build[20];
+    snprintf(build, sizeof(build), "fw %.6s %.5s", BUILD_DATE, BUILD_TIME);
+    _oled.drawStr((128 - _oled.getStrWidth(build)) / 2, 58, build);
     _oled.sendBuffer();
     _splash_until_ms = millis() + DISPLAY_SPLASH_MS;
     return true;

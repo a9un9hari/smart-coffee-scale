@@ -58,6 +58,9 @@ class GrinderBleManager(private val context: Context) {
     private var otaConfigChar: BluetoothGattCharacteristic? = null
     private var otaStatusChar: BluetoothGattCharacteristic? = null
     private var grindLogChar: BluetoothGattCharacteristic? = null
+    private var bleOtaCtrlChar: BluetoothGattCharacteristic? = null
+    private var bleOtaDataChar: BluetoothGattCharacteristic? = null
+    private var negotiatedMtu = 23
     private var servicesDiscoveryStarted = false
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
@@ -76,6 +79,15 @@ class GrinderBleManager(private val context: Context) {
     // burst a few hundred in a row, hence the generous buffer.
     private val _grindLogLines = MutableSharedFlow<String>(extraBufferCapacity = 512)
     val grindLogLines: SharedFlow<String> = _grindLogLines
+
+    private val _bleOtaStatus = MutableStateFlow<BleOtaStatus?>(null)
+    val bleOtaStatus: StateFlow<BleOtaStatus?> = _bleOtaStatus.asStateFlow()
+
+    // App-side count of image bytes whose write has been acknowledged -
+    // smoother than the firmware's throttled notifies, and still moves if a
+    // notify is dropped.
+    private val _bleOtaSentBytes = MutableStateFlow(0L)
+    val bleOtaSentBytes: StateFlow<Long> = _bleOtaSentBytes.asStateFlow()
 
     private val opQueue = ArrayDeque<() -> Unit>()
     private var opInFlight = false
@@ -187,6 +199,7 @@ class GrinderBleManager(private val context: Context) {
                     timeoutHandler.postDelayed({ startServiceDiscoveryOnce(g) }, MTU_FALLBACK_MS)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    negotiatedMtu = 23
                     _connectionState.value = ConnectionState.DISCONNECTED
                     _status.value = null
                     _otaStatus.value = null
@@ -197,6 +210,7 @@ class GrinderBleManager(private val context: Context) {
         }
 
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) negotiatedMtu = mtu
             startServiceDiscoveryOnce(g)
         }
 
@@ -216,6 +230,8 @@ class GrinderBleManager(private val context: Context) {
             otaConfigChar = service?.getCharacteristic(GrinderBleUuids.OTA_CONFIG)
             otaStatusChar = service?.getCharacteristic(GrinderBleUuids.OTA_STATUS)
             grindLogChar = service?.getCharacteristic(GrinderBleUuids.GRIND_LOG) // null on firmware older than the log sync
+            bleOtaCtrlChar = service?.getCharacteristic(GrinderBleUuids.BLE_OTA_CTRL) // null on firmware older than BLE OTA
+            bleOtaDataChar = service?.getCharacteristic(GrinderBleUuids.BLE_OTA_DATA)
 
             // All descriptor writes go through the same queue as everything
             // else - issuing them back-to-back without waiting for each
@@ -224,6 +240,7 @@ class GrinderBleManager(private val context: Context) {
             calibrationStatusChar?.let { enqueue { enableNotify(g, it) } }
             otaStatusChar?.let { enqueue { enableNotify(g, it) } }
             grindLogChar?.let { enqueue { enableNotify(g, it) } }
+            bleOtaCtrlChar?.let { enqueue { enableNotify(g, it) } }
 
             prefs.lastDeviceAddress = g.device.address
             _connectionState.value = ConnectionState.CONNECTED
@@ -295,6 +312,7 @@ class GrinderBleManager(private val context: Context) {
             GrinderBleUuids.CALIBRATION_STATUS -> decodeCalibrationStatus(value)?.let { _calibrationStatus.value = it }
             GrinderBleUuids.OTA_STATUS -> decodeOtaStatus(value)?.let { _otaStatus.value = it }
             GrinderBleUuids.GRIND_LOG -> _grindLogLines.tryEmit(String(value, Charsets.US_ASCII))
+            GrinderBleUuids.BLE_OTA_CTRL -> decodeBleOtaStatus(value)?.let { _bleOtaStatus.value = it }
         }
     }
 
@@ -315,6 +333,60 @@ class GrinderBleManager(private val context: Context) {
         val g = gatt ?: return
         val ch = otaConfigChar ?: return
         enqueue { writeChar(g, ch, bytes) }
+    }
+
+    val supportsBleOta: Boolean get() = bleOtaCtrlChar != null && bleOtaDataChar != null
+
+    /**
+     * Streams a firmware image: BEGIN, every chunk (write-with-response, so
+     * each one is acknowledged before the next - reliable, and the queue's
+     * per-op timeout still guards against a lost callback), then END.
+     * Requests a high-priority (short interval) connection for the duration,
+     * which is what makes this ~1-2 min instead of several.
+     */
+    @SuppressLint("MissingPermission")
+    fun startBleOta(image: ByteArray, md5Hex: String): Boolean {
+        val g = gatt ?: return false
+        val ctrl = bleOtaCtrlChar ?: return false
+        val data = bleOtaDataChar ?: return false
+        val chunkSize = (negotiatedMtu - 3).coerceIn(20, 512)
+
+        _bleOtaSentBytes.value = 0L
+        _bleOtaStatus.value = null
+        g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+        enqueue { writeChar(g, ctrl, BleOtaProtocol.begin(image.size, md5Hex)) }
+        var offset = 0
+        while (offset < image.size) {
+            val end = minOf(offset + chunkSize, image.size)
+            val chunk = image.copyOfRange(offset, end)
+            val sentAfter = end.toLong()
+            enqueue {
+                _bleOtaSentBytes.value = sentAfter
+                writeChar(g, data, chunk)
+            }
+            offset = end
+        }
+        enqueue {
+            writeChar(g, ctrl, BleOtaProtocol.end())
+            g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+        }
+        return true
+    }
+
+    /** Drops every still-queued chunk and tells the firmware to abandon the update. */
+    @SuppressLint("MissingPermission")
+    fun cancelBleOta() {
+        val g = gatt ?: return
+        val ctrl = bleOtaCtrlChar ?: return
+        resetQueue()
+        // A chunk write may still be in flight in the GATT stack - a second
+        // write issued before its callback would be silently rejected, so
+        // give it a moment. (If ABORT is lost anyway, the firmware abandons
+        // the transfer on its own data timeout.)
+        Handler(Looper.getMainLooper()).postDelayed({
+            enqueue { writeChar(g, ctrl, BleOtaProtocol.abort()) }
+            g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+        }, 300)
     }
 
     /** Asks the firmware for every stored grind session newer than this cursor - see BleGrindLog. Returns false if unsupported/not connected. */

@@ -10,7 +10,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.security.MessageDigest
 
 /** One (elapsed seconds since pull started, weight in grams) sample for the shot graph. */
 data class ShotSample(val tSeconds: Float, val weightG: Float)
@@ -129,6 +133,64 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
     val calibrationStatus: StateFlow<CalibrationStatus?> = ble.calibrationStatus
     val otaStatus: StateFlow<OtaStatus?> = ble.otaStatus
 
+    // ---- Firmware update over BLE ----
+    // The image is dropped into the app's own external files dir (adb push,
+    // no root needed): /sdcard/Android/data/com.agung.smartgrinder/files/firmware.bin
+    private val firmwareFile = File(application.getExternalFilesDir(null), "firmware.bin")
+
+    data class FirmwareFileInfo(val sizeBytes: Long, val modifiedMs: Long)
+
+    private val _firmwareFileInfo = MutableStateFlow<FirmwareFileInfo?>(null)
+    val firmwareFileInfo: StateFlow<FirmwareFileInfo?> = _firmwareFileInfo.asStateFlow()
+
+    val bleOtaStatus: StateFlow<BleOtaStatus?> = ble.bleOtaStatus
+    val bleOtaSentBytes: StateFlow<Long> = ble.bleOtaSentBytes
+
+    private val _bleOtaSending = MutableStateFlow(false)
+    val bleOtaSending: StateFlow<Boolean> = _bleOtaSending.asStateFlow()
+
+    private val _bleOtaAppError = MutableStateFlow<String?>(null)
+    val bleOtaAppError: StateFlow<String?> = _bleOtaAppError.asStateFlow()
+
+    // Not an error: the likely-succeeded case where the grinder rebooted
+    // before its SUCCESS notify reached the phone.
+    private val _bleOtaAppNotice = MutableStateFlow<String?>(null)
+    val bleOtaAppNotice: StateFlow<String?> = _bleOtaAppNotice.asStateFlow()
+
+    fun refreshFirmwareFile() {
+        _firmwareFileInfo.value = if (firmwareFile.exists()) FirmwareFileInfo(firmwareFile.length(), firmwareFile.lastModified()) else null
+    }
+
+    fun startBleOta() {
+        if (_bleOtaSending.value) return
+        _bleOtaAppError.value = null
+        _bleOtaAppNotice.value = null
+        viewModelScope.launch {
+            val image = withContext(Dispatchers.IO) { if (firmwareFile.exists()) firmwareFile.readBytes() else null }
+            if (image == null || image.isEmpty()) {
+                _bleOtaAppError.value = "No firmware.bin found on the phone"
+                return@launch
+            }
+            if (!ble.supportsBleOta) {
+                _bleOtaAppError.value = "Grinder firmware is too old for Bluetooth updates - update once over USB"
+                return@launch
+            }
+            val md5 = withContext(Dispatchers.Default) {
+                MessageDigest.getInstance("MD5").digest(image).joinToString("") { "%02x".format(it) }
+            }
+            if (ble.startBleOta(image, md5)) {
+                _bleOtaSending.value = true
+            } else {
+                _bleOtaAppError.value = "Not connected to the grinder"
+            }
+        }
+    }
+
+    fun cancelBleOta() {
+        ble.cancelBleOta()
+        _bleOtaSending.value = false
+    }
+
     // Espresso shot graph: recorded from PULL_SHOT through SHOT_COMPLETE, reset
     // when a new pull starts. Sourced entirely from the existing Status
     // notification stream (~6-7Hz) - no separate firmware protocol needed.
@@ -161,6 +223,40 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
 
         viewModelScope.launch {
             ble.grindLogLines.collect { onGrindLogLine(it) }
+        }
+
+        // BLE OTA end states: stop feeding chunks as soon as the firmware
+        // reports an error (it ignores them anyway), and clear "sending" on
+        // success/disconnect - a successful update reboots the grinder,
+        // which drops the connection.
+        viewModelScope.launch {
+            ble.bleOtaStatus.collect { s ->
+                if (!_bleOtaSending.value || s == null) return@collect
+                when (s.state) {
+                    BleOtaState.ERROR -> {
+                        ble.cancelBleOta()
+                        _bleOtaSending.value = false
+                    }
+                    BleOtaState.SUCCESS -> _bleOtaSending.value = false
+                    else -> {}
+                }
+            }
+        }
+        viewModelScope.launch {
+            ble.connectionState.collect { state ->
+                if (state != ConnectionState.CONNECTED && _bleOtaSending.value) {
+                    _bleOtaSending.value = false
+                    val allSent = (_firmwareFileInfo.value?.sizeBytes ?: -1L) == ble.bleOtaSentBytes.value
+                    when {
+                        ble.bleOtaStatus.value?.state == BleOtaState.SUCCESS -> {}
+                        // The grinder reboots right after a verified END, so a
+                        // drop at that point almost always means it worked -
+                        // the splash's build stamp is the ground truth.
+                        allSent -> _bleOtaAppNotice.value = "Connection dropped right after the last chunk - the grinder most likely restarted with the new firmware. Check the build date on its screen."
+                        else -> _bleOtaAppError.value = "Connection dropped during the update - the grinder kept its current firmware. Reconnect and try again."
+                    }
+                }
+            }
         }
 
         viewModelScope.launch {

@@ -102,6 +102,10 @@
 #define TOPUP_PULSE_MS          200
 #define TOPUP_MAX_PULSES        3
 
+#define BLE_OTA_DATA_TIMEOUT_MS  15000   // abort a BLE firmware update if no data arrives this long
+#define BLE_OTA_REBOOT_DELAY_MS  1000    // after a verified update - lets the SUCCESS notify reach the app first
+#define BLE_OTA_NOTIFY_INTERVAL_MS 250   // progress notify throttle (state changes bypass it)
+
 #define GRINDLOG_SYNC_INTERVAL_MS 20    // BLE log sync pacing - one row per this many ms
 #define GRINDLOG_MAX_BYTES      32768    // rotate grinds.csv past this (~250 sessions); one old generation kept
 

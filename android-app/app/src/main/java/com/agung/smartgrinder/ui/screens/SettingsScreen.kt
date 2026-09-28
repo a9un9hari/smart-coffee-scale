@@ -11,7 +11,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.agung.smartgrinder.GrinderViewModel
+import com.agung.smartgrinder.ble.BleOtaState
+import com.agung.smartgrinder.ble.BleOtaStatus
 import com.agung.smartgrinder.ble.ConnectionState
+import com.agung.smartgrinder.ble.bleOtaErrorText
 import com.agung.smartgrinder.ble.OtaState
 import com.agung.smartgrinder.ble.OtaStatus
 import com.agung.smartgrinder.ble.WeightSource
@@ -48,7 +52,16 @@ fun SettingsScreen(
     onCalSave: () -> Unit,
     otaStatus: OtaStatus?,
     onOtaStart: (ssid: String, password: String, url: String) -> Unit,
-    onOtaCancel: () -> Unit
+    onOtaCancel: () -> Unit,
+    firmwareFileInfo: GrinderViewModel.FirmwareFileInfo?,
+    bleOtaStatus: BleOtaStatus?,
+    bleOtaSentBytes: Long,
+    bleOtaSending: Boolean,
+    bleOtaAppError: String?,
+    bleOtaAppNotice: String?,
+    onRefreshFirmwareFile: () -> Unit,
+    onBleOtaStart: () -> Unit,
+    onBleOtaCancel: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -117,7 +130,7 @@ fun SettingsScreen(
             SectionCard(label = "Timemore Dot") {
                 Text("Weight source", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Which sensor the grinder actually weighs from - switches everywhere in the app (Grind, Timer, Brew, Scale), not just here. Not saved on the grinder, re-applied every time the app connects.",
+                    "Which sensor the grinder actually weighs from - switches everywhere in the app (Grind, Timer, Brew, Scale), not just here. Saved on the grinder, so it survives a power cycle even with no phone around.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -155,6 +168,21 @@ fun SettingsScreen(
                     )
                 }
             }
+        }
+
+        item {
+            BleOtaSection(
+                connected = connectionState == ConnectionState.CONNECTED,
+                fileInfo = firmwareFileInfo,
+                status = bleOtaStatus,
+                sentBytes = bleOtaSentBytes,
+                sending = bleOtaSending,
+                appError = bleOtaAppError,
+                appNotice = bleOtaAppNotice,
+                onRefresh = onRefreshFirmwareFile,
+                onStart = onBleOtaStart,
+                onCancel = onBleOtaCancel
+            )
         }
 
         if (connectionState == ConnectionState.CONNECTED) {
@@ -205,6 +233,97 @@ fun SettingsScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Firmware update over Bluetooth (include/ble_ota.h) - the normal update
+ * path once the board lives inside the grinder: no WiFi, no HTTP server.
+ * The image is pushed to the phone first (adb push to the app's files dir),
+ * then streamed from here. The grinder keeps its current firmware unless
+ * the whole image arrives and its MD5 checks out.
+ */
+@Composable
+private fun BleOtaSection(
+    connected: Boolean,
+    fileInfo: GrinderViewModel.FirmwareFileInfo?,
+    status: BleOtaStatus?,
+    sentBytes: Long,
+    sending: Boolean,
+    appError: String?,
+    appNotice: String?,
+    onRefresh: () -> Unit,
+    onStart: () -> Unit,
+    onCancel: () -> Unit
+) {
+    LaunchedEffect(Unit) { onRefresh() }
+
+    SectionCard(label = "Firmware update (Bluetooth)") {
+        if (fileInfo == null) {
+            Text(
+                "No firmware.bin on the phone yet. Copy it to Android/data/com.agung.smartgrinder/files/firmware.bin, then tap Refresh.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            val modified = java.text.SimpleDateFormat("dd MMM HH:mm", java.util.Locale.getDefault())
+                .format(java.util.Date(fileInfo.modifiedMs))
+            Text(
+                String.format(java.util.Locale.US, "firmware.bin · %.1f KB · copied %s", fileInfo.sizeBytes / 1024f, modified),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        if (sending) {
+            val total = fileInfo?.sizeBytes ?: status?.total ?: 0L
+            val fraction = if (total > 0) (sentBytes.toFloat() / total).coerceIn(0f, 1f) else 0f
+            Text(
+                String.format(java.util.Locale.US, "Sending… %d%% (%.0f / %.0f KB)", (fraction * 100).toInt(), sentBytes / 1024f, total / 1024f),
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+            Text(
+                "Keep the phone close and the app open until it finishes.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        when {
+            status?.state == BleOtaState.SUCCESS -> Text(
+                "Update verified - the grinder is restarting. Its screen shows the new build date on the splash.",
+                color = MaterialTheme.status.success,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            status?.state == BleOtaState.ERROR -> Text(
+                "Update failed: ${bleOtaErrorText(status.errorCode)}",
+                color = MaterialTheme.status.danger,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        appError?.let {
+            Text(it, color = MaterialTheme.status.danger, style = MaterialTheme.typography.bodyMedium)
+        }
+        appNotice?.let {
+            Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (sending) {
+                NeutralOutlinedButton("Cancel", onClick = onCancel)
+            } else {
+                AppButton("Update via Bluetooth", onClick = onStart, enabled = connected && fileInfo != null)
+                NeutralOutlinedButton("Refresh", onClick = onRefresh)
+            }
+        }
+        if (!connected && !sending) {
+            Text(
+                "Connect to the grinder first.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

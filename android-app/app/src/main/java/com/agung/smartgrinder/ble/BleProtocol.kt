@@ -18,6 +18,8 @@ object GrinderBleUuids {
     val OTA_CONFIG: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0005")
     val OTA_STATUS: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0006")
     val GRIND_LOG: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0007")
+    val BLE_OTA_CTRL: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0008")
+    val BLE_OTA_DATA: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0009")
 
     // Standard Client Characteristic Configuration Descriptor - used to enable notifications.
     val CLIENT_CHARACTERISTIC_CONFIG: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
@@ -297,4 +299,61 @@ object BleGrindLog {
             .putInt(afterBoot.toInt())
             .putInt(afterUptimeS.toInt())
             .array()
+}
+
+/**
+ * Firmware update over BLE (include/ble_ota.h): BEGIN(size, md5) on the
+ * control characteristic, the raw image in order on the data
+ * characteristic, then END - the firmware verifies the MD5 and reboots.
+ */
+object BleOtaProtocol {
+    private const val OP_BEGIN: Int = 1
+    private const val OP_END: Int = 2
+    private const val OP_ABORT: Int = 3
+
+    /** md5Hex must be 32 lowercase hex chars - the firmware compares it as-is. */
+    fun begin(size: Int, md5Hex: String): ByteArray =
+        ByteBuffer.allocate(1 + 4 + 32).order(ByteOrder.LITTLE_ENDIAN)
+            .put(OP_BEGIN.toByte())
+            .putInt(size)
+            .put(md5Hex.lowercase().toByteArray(Charsets.US_ASCII))
+            .array()
+
+    fun end(): ByteArray = byteArrayOf(OP_END.toByte())
+    fun abort(): ByteArray = byteArrayOf(OP_ABORT.toByte())
+}
+
+enum class BleOtaState(val wireValue: Int) {
+    IDLE(0), RECEIVING(1), SUCCESS(2), ERROR(3);
+
+    companion object {
+        fun fromWire(v: Int) = entries.firstOrNull { it.wireValue == v } ?: ERROR
+    }
+}
+
+data class BleOtaStatus(val state: BleOtaState, val errorCode: Int, val received: Long, val total: Long)
+
+/** Parses the 10-byte BleOtaWireStatus notification. Null if malformed. */
+fun decodeBleOtaStatus(bytes: ByteArray): BleOtaStatus? {
+    if (bytes.size < 10) return null
+    val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+    val state = buf.get().toInt() and 0xFF
+    val error = buf.get().toInt() and 0xFF
+    val received = buf.int.toLong() and 0xFFFFFFFFL
+    val total = buf.int.toLong() and 0xFFFFFFFFL
+    return BleOtaStatus(BleOtaState.fromWire(state), error, received, total)
+}
+
+/** Mirrors BleOtaError in include/ble_ota.h. */
+fun bleOtaErrorText(code: Int): String = when (code) {
+    1 -> "grinder is running - try again when it's idle"
+    2 -> "grinder couldn't start the update (file too big / no free slot)"
+    3 -> "flash write failed on the grinder"
+    4 -> "transfer incomplete - not all bytes arrived"
+    5 -> "checksum mismatch - file corrupted in transfer, try again"
+    6 -> "timed out waiting for data"
+    7 -> "cancelled / connection dropped"
+    8 -> "grinder got data without a start command"
+    9 -> "malformed start command"
+    else -> "error $code"
 }

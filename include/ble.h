@@ -7,6 +7,7 @@
 #include <freertos/queue.h>
 #include "data_types.h"
 #include "ota.h"
+#include "ble_ota.h"
 
 // All ATT payloads kept <=20 bytes so the default BLE MTU (23 bytes total,
 // 20 usable) is always enough - no MTU negotiation needed on either side.
@@ -80,6 +81,11 @@ public:
     // can feed SSID/password/URL straight into it (same pattern as
     // attachCalibration) and notifyOtaStatus() can read its live state.
     void attachOta(OtaManager *ota) { _ota = ota; }
+    // BLE firmware update (see ble_ota.h) - the BleOtaCtrl/BleOtaData write
+    // callbacks forward straight into it; notifyBleOtaStatus() reports back.
+    void attachBleOta(BleOta *ble_ota) { _ble_ota = ble_ota; }
+    BleOta *getBleOta() const { return _ble_ota; }
+    void notifyBleOtaStatus(); // throttled, except on state changes
     OtaManager *getOta() const { return _ota; }
     // Rate-limited like notifyStatus(), but a state change always bypasses
     // the limit - only same-state progress-percent spam during OTA_UPDATING
@@ -118,6 +124,11 @@ private:
     volatile bool _grind_log_req_pending = false;
     volatile uint32_t _grind_log_req_boot = 0;
     volatile uint32_t _grind_log_req_uptime_s = 0;
+
+    NimBLECharacteristic *_ble_ota_ctrl_char = nullptr;
+    BleOta *_ble_ota = nullptr;
+    uint32_t _last_ble_ota_notify_ms = 0;
+    uint32_t _last_ble_ota_state_version = 0;
 };
 
 #endif // BLE_H
