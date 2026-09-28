@@ -66,6 +66,7 @@ void GrinderController::begin() {
     _status.motor_running = false;
 
     _grind_log.begin();
+    _grind_log.setLiveSink([this](const char *line) { _ble.notifyGrindLogLine(line); });
     _display.begin(); // optional module - no-op everywhere if it isn't wired up
 
     _state_machine.init(&_status); // also sets mode=GRINDER, state=IDLE, error_code=0
@@ -560,4 +561,15 @@ void GrinderController::update() {
                        (uint8_t)_weight_source, _timemore.isConnected(),
                        _timemore.isEnabled(), _hx711_detected); // internally rate-limited
     _ble.notifyOtaStatus(); // internally rate-limited
+
+    uint32_t after_boot, after_uptime_s;
+    if (_ble.takeGrindLogRequest(after_boot, after_uptime_s)) {
+        _grind_log.startSync(after_boot, after_uptime_s);
+    }
+    // Flash reads + notifies only while nothing time-sensitive is running.
+    bool busy = _status.state == STATE_GRINDING || _status.state == STATE_PULL_SHOT ||
+                _status.state == STATE_PULLING || _overshoot_eval_pending;
+    if (!busy) {
+        _grind_log.serviceSync(now, [this](const char *line) { _ble.notifyGrindLogLine(line); });
+    }
 }

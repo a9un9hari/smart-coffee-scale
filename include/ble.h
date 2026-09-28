@@ -94,6 +94,13 @@ public:
 
     QueueHandle_t getCommandQueue() const { return _command_queue; }
 
+    // Grind-log sync over the GrindLog characteristic (see GrindLog). The
+    // write callback records the request; the main loop takes it and
+    // streams rows back through notifyGrindLogLine().
+    void setGrindLogRequest(uint32_t after_boot, uint32_t after_uptime_s);
+    bool takeGrindLogRequest(uint32_t &after_boot, uint32_t &after_uptime_s);
+    void notifyGrindLogLine(const char *line);
+
 private:
     const CalibrationData *_calibration = nullptr;
     OtaManager *_ota = nullptr;
@@ -106,6 +113,11 @@ private:
     NimBLECharacteristic *_status_char = nullptr;
     NimBLECharacteristic *_calibration_status_char = nullptr;
     NimBLECharacteristic *_ota_status_char = nullptr;
+    NimBLECharacteristic *_grind_log_char = nullptr;
+
+    volatile bool _grind_log_req_pending = false;
+    volatile uint32_t _grind_log_req_boot = 0;
+    volatile uint32_t _grind_log_req_uptime_s = 0;
 };
 
 #endif // BLE_H

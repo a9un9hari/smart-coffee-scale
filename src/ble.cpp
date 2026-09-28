@@ -8,6 +8,7 @@
 #define CALIBRATION_STATUS_CHAR_UUID "c4a10000-1000-4a4a-8a1a-2f5e9b6d0004"
 #define OTA_CONFIG_CHAR_UUID     "c4a10000-1000-4a4a-8a1a-2f5e9b6d0005"
 #define OTA_STATUS_CHAR_UUID     "c4a10000-1000-4a4a-8a1a-2f5e9b6d0006"
+#define GRIND_LOG_CHAR_UUID      "c4a10000-1000-4a4a-8a1a-2f5e9b6d0007"
 
 #pragma pack(push, 1)
 struct BleStatusWire {
@@ -185,6 +186,30 @@ private:
     BleServer *_server;
 };
 
+// Write: uint32 after_boot + uint32 after_uptime_s (little-endian) - a sync
+// request for every grind-log row newer than that cursor. Only recorded
+// here; GrinderController picks it up from the main loop, which is also
+// where the rows are read from flash and notified back (one CSV row per
+// notify, then "#END").
+class GrindLogCallbacks : public NimBLECharacteristicCallbacks {
+public:
+    explicit GrindLogCallbacks(BleServer *server) : _server(server) {}
+
+    void onWrite(NimBLECharacteristic *characteristic) override {
+        std::string raw = characteristic->getValue();
+        if (raw.size() < 8) {
+            return;
+        }
+        uint32_t after_boot, after_uptime_s;
+        memcpy(&after_boot, raw.data(), 4);
+        memcpy(&after_uptime_s, raw.data() + 4, 4);
+        _server->setGrindLogRequest(after_boot, after_uptime_s);
+    }
+
+private:
+    BleServer *_server;
+};
+
 // NimBLE stops advertising once a central connects, and does NOT resume it
 // automatically on disconnect - without this, the device becomes invisible
 // to everyone else (or even to the same central reconnecting) the moment
@@ -241,6 +266,11 @@ void BleServer::begin() {
         OTA_STATUS_CHAR_UUID,
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
 
+    _grind_log_char = service->createCharacteristic(
+        GRIND_LOG_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
+    _grind_log_char->setCallbacks(new GrindLogCallbacks(this));
+
     service->start();
 
     NimBLEAdvertising *advertising = NimBLEDevice::getAdvertising();
@@ -282,6 +312,30 @@ void BleServer::notifyStatus(const SystemStatus &status, uint8_t active_cup_prof
 
     _status_char->setValue((uint8_t *)&wire, sizeof(wire));
     _status_char->notify();
+}
+
+void BleServer::setGrindLogRequest(uint32_t after_boot, uint32_t after_uptime_s) {
+    _grind_log_req_boot = after_boot;
+    _grind_log_req_uptime_s = after_uptime_s;
+    _grind_log_req_pending = true; // set last - main loop reads the cursor only after seeing this
+}
+
+bool BleServer::takeGrindLogRequest(uint32_t &after_boot, uint32_t &after_uptime_s) {
+    if (!_grind_log_req_pending) {
+        return false;
+    }
+    after_boot = _grind_log_req_boot;
+    after_uptime_s = _grind_log_req_uptime_s;
+    _grind_log_req_pending = false;
+    return true;
+}
+
+void BleServer::notifyGrindLogLine(const char *line) {
+    if (_grind_log_char == nullptr) {
+        return;
+    }
+    _grind_log_char->setValue((const uint8_t *)line, strlen(line));
+    _grind_log_char->notify();
 }
 
 void BleServer::notifyCalibrationStatus(uint8_t point_count, bool last_save_ok, float last_point_raw, float last_point_weight_g) {

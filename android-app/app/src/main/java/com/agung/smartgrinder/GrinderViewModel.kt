@@ -42,6 +42,49 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
 
     fun logBrew(data: BrewLogData) = brewLogger.logBrew(data)
 
+    // Grind sessions synced from the firmware's on-flash GrindLog, newest
+    // first. Synced automatically on every connect (only rows newer than
+    // what's already stored), and pushed live by the firmware as each
+    // grind finishes while connected.
+    private val grindHistoryStore = GrindHistoryStore(application)
+    private val _grindHistory = MutableStateFlow(sortedHistory(grindHistoryStore.load()))
+    val grindHistory: StateFlow<List<GrindRecord>> = _grindHistory.asStateFlow()
+
+    private val _grindLogSyncing = MutableStateFlow(false)
+    val grindLogSyncing: StateFlow<Boolean> = _grindLogSyncing.asStateFlow()
+
+    private fun sortedHistory(records: List<GrindRecord>) =
+        records.sortedWith(compareByDescending<GrindRecord> { it.boot }.thenByDescending { it.uptimeS })
+
+    fun syncGrindLog() {
+        val newest = _grindHistory.value.firstOrNull()
+        if (ble.requestGrindLog(newest?.boot ?: 0L, newest?.uptimeS ?: 0L)) {
+            _grindLogSyncing.value = true
+        }
+    }
+
+    private fun onGrindLogLine(line: String) {
+        if (line == BleGrindLog.END) {
+            _grindLogSyncing.value = false
+            return
+        }
+        val record = GrindRecord.fromCsv(line, System.currentTimeMillis()) ?: return
+        val current = _grindHistory.value
+        if (current.any { it.key == record.key }) return // already have it - keep its manual fields
+        val updated = sortedHistory(current + record)
+        _grindHistory.value = updated
+        grindHistoryStore.save(updated)
+    }
+
+    /** Saves a reference-scale weight (net dose) and/or note for one session; null clears the weight. */
+    fun setGrindReference(boot: Long, uptimeS: Long, refWeightG: Float?, note: String) {
+        val updated = _grindHistory.value.map {
+            if (it.boot == boot && it.uptimeS == uptimeS) it.copy(refWeightG = refWeightG, note = note) else it
+        }
+        _grindHistory.value = updated
+        grindHistoryStore.save(updated)
+    }
+
     private val _darkTheme = MutableStateFlow(prefs.darkTheme)
     val darkTheme: StateFlow<Boolean> = _darkTheme.asStateFlow()
 
@@ -103,8 +146,15 @@ class GrinderViewModel(application: Application) : AndroidViewModel(application)
                 if (state == ConnectionState.CONNECTED) {
                     ble.sendCommand(BleCommand.setSmoothingAlpha(_smoothingAlpha.value))
                     ble.sendCommand(BleCommand.setTimemoreAutoConnect(_timemoreAutoConnect.value))
+                    syncGrindLog()
+                } else {
+                    _grindLogSyncing.value = false
                 }
             }
+        }
+
+        viewModelScope.launch {
+            ble.grindLogLines.collect { onGrindLogLine(it) }
         }
 
         viewModelScope.launch {

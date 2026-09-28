@@ -11,7 +11,9 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import com.agung.smartgrinder.AppPreferences
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -55,6 +57,7 @@ class GrinderBleManager(private val context: Context) {
     private var calibrationStatusChar: BluetoothGattCharacteristic? = null
     private var otaConfigChar: BluetoothGattCharacteristic? = null
     private var otaStatusChar: BluetoothGattCharacteristic? = null
+    private var grindLogChar: BluetoothGattCharacteristic? = null
     private var servicesDiscoveryStarted = false
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
@@ -68,6 +71,11 @@ class GrinderBleManager(private val context: Context) {
 
     private val _otaStatus = MutableStateFlow<OtaStatus?>(null)
     val otaStatus: StateFlow<OtaStatus?> = _otaStatus.asStateFlow()
+
+    // Raw GrindLog notifications (CSV rows / BleGrindLog.END) - a sync can
+    // burst a few hundred in a row, hence the generous buffer.
+    private val _grindLogLines = MutableSharedFlow<String>(extraBufferCapacity = 512)
+    val grindLogLines: SharedFlow<String> = _grindLogLines
 
     private val opQueue = ArrayDeque<() -> Unit>()
     private var opInFlight = false
@@ -207,6 +215,7 @@ class GrinderBleManager(private val context: Context) {
             calibrationStatusChar = service?.getCharacteristic(GrinderBleUuids.CALIBRATION_STATUS)
             otaConfigChar = service?.getCharacteristic(GrinderBleUuids.OTA_CONFIG)
             otaStatusChar = service?.getCharacteristic(GrinderBleUuids.OTA_STATUS)
+            grindLogChar = service?.getCharacteristic(GrinderBleUuids.GRIND_LOG) // null on firmware older than the log sync
 
             // All descriptor writes go through the same queue as everything
             // else - issuing them back-to-back without waiting for each
@@ -214,6 +223,7 @@ class GrinderBleManager(private val context: Context) {
             statusChar?.let { enqueue { enableNotify(g, it) } }
             calibrationStatusChar?.let { enqueue { enableNotify(g, it) } }
             otaStatusChar?.let { enqueue { enableNotify(g, it) } }
+            grindLogChar?.let { enqueue { enableNotify(g, it) } }
 
             prefs.lastDeviceAddress = g.device.address
             _connectionState.value = ConnectionState.CONNECTED
@@ -284,6 +294,7 @@ class GrinderBleManager(private val context: Context) {
             GrinderBleUuids.STATUS -> decodeStatus(value)?.let { _status.value = it }
             GrinderBleUuids.CALIBRATION_STATUS -> decodeCalibrationStatus(value)?.let { _calibrationStatus.value = it }
             GrinderBleUuids.OTA_STATUS -> decodeOtaStatus(value)?.let { _otaStatus.value = it }
+            GrinderBleUuids.GRIND_LOG -> _grindLogLines.tryEmit(String(value, Charsets.US_ASCII))
         }
     }
 
@@ -304,6 +315,15 @@ class GrinderBleManager(private val context: Context) {
         val g = gatt ?: return
         val ch = otaConfigChar ?: return
         enqueue { writeChar(g, ch, bytes) }
+    }
+
+    /** Asks the firmware for every stored grind session newer than this cursor - see BleGrindLog. Returns false if unsupported/not connected. */
+    @SuppressLint("MissingPermission")
+    fun requestGrindLog(afterBoot: Long, afterUptimeS: Long): Boolean {
+        val g = gatt ?: return false
+        val ch = grindLogChar ?: return false
+        enqueue { writeChar(g, ch, BleGrindLog.request(afterBoot, afterUptimeS)) }
+        return true
     }
 
     @SuppressLint("MissingPermission")

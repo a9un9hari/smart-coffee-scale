@@ -38,6 +38,7 @@ fun MainScreen(
 ) {
     var selectedTab by remember { mutableStateOf(Tab.GRIND) }
     var showSettings by remember { mutableStateOf(false) }
+    var showGrindHistory by remember { mutableStateOf(false) }
 
     val connectionState by viewModel.connectionState.collectAsState()
     val status by viewModel.status.collectAsState()
@@ -48,6 +49,8 @@ fun MainScreen(
     val darkTheme by viewModel.darkTheme.collectAsState()
     val smoothingAlpha by viewModel.smoothingAlpha.collectAsState()
     val timemoreAutoConnect by viewModel.timemoreAutoConnect.collectAsState()
+    val grindHistory by viewModel.grindHistory.collectAsState()
+    val grindLogSyncing by viewModel.grindLogSyncing.collectAsState()
 
     var autoConnectAttempted by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(permissionsGranted) {
@@ -125,11 +128,36 @@ fun MainScreen(
         return
     }
 
+    if (showGrindHistory) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Grind History") },
+                    navigationIcon = {
+                        IconButton(onClick = { showGrindHistory = false }) { Text("⬅️") }
+                    }
+                )
+            }
+        ) { padding ->
+            Box(modifier = Modifier.padding(padding)) {
+                GrindHistoryScreen(
+                    records = grindHistory,
+                    syncing = grindLogSyncing,
+                    connected = connectionState == ConnectionState.CONNECTED,
+                    onSync = viewModel::syncGrindLog,
+                    onSaveReference = viewModel::setGrindReference
+                )
+            }
+        }
+        return
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {},
                 actions = {
+                    IconButton(onClick = { showGrindHistory = true }) { Text("📋") }
                     IconButton(onClick = { showSettings = true }) { Text("⚙️") }
                 }
             )

@@ -17,6 +17,7 @@ object GrinderBleUuids {
     val CALIBRATION_STATUS: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0004")
     val OTA_CONFIG: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0005")
     val OTA_STATUS: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0006")
+    val GRIND_LOG: UUID = UUID.fromString("c4a10000-1000-4a4a-8a1a-2f5e9b6d0007")
 
     // Standard Client Characteristic Configuration Descriptor - used to enable notifications.
     val CLIENT_CHARACTERISTIC_CONFIG: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
@@ -280,4 +281,20 @@ object BleOtaConfig {
         val truncated = if (raw.size > maxLen) raw.copyOf(maxLen) else raw
         return byteArrayOf(fieldId.toByte()) + truncated
     }
+}
+
+/**
+ * GrindLog characteristic: write a (boot, uptimeS) cursor, get back one
+ * notify per stored grind session newer than it (a CSV row, see
+ * GrindRecord.fromCsv), then [BleGrindLog.END]. New sessions are also
+ * notified live as they finish.
+ */
+object BleGrindLog {
+    const val END = "#END"
+
+    fun request(afterBoot: Long, afterUptimeS: Long): ByteArray =
+        ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(afterBoot.toInt())
+            .putInt(afterUptimeS.toInt())
+            .array()
 }

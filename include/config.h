@@ -99,6 +99,7 @@
 #define TOPUP_PULSE_MS          1000
 #define TOPUP_MAX_PULSES        3
 
+#define GRINDLOG_SYNC_INTERVAL_MS 20    // BLE log sync pacing - one row per this many ms
 #define GRINDLOG_MAX_BYTES      32768    // rotate grinds.csv past this (~250 sessions); one old generation kept
 
 #define STATE_MACHINE_UPDATE_MS 100
