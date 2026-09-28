@@ -95,12 +95,25 @@
 // Overshoot learning still samples the main grind's undershoot first, so
 // the need for top-ups should shrink on its own over the next grinds.
 #define TOPUP_ENABLED           1
-#define TOPUP_THRESHOLD_G       0.2f
-#define TOPUP_PULSE_MS          1000
+// 2026-09-28 first real pulse: 1000ms turned a 0.20g shortfall into a
+// +1.10g overshoot (~1.3g per 1s pulse incl. spin-up/tail) -> 200ms, and
+// a 0.3g threshold since ~0.2g is within normal grind-to-grind spread.
+#define TOPUP_THRESHOLD_G       0.3f
+#define TOPUP_PULSE_MS          200
 #define TOPUP_MAX_PULSES        3
 
 #define GRINDLOG_SYNC_INTERVAL_MS 20    // BLE log sync pacing - one row per this many ms
 #define GRINDLOG_MAX_BYTES      32768    // rotate grinds.csv past this (~250 sessions); one old generation kept
+
+// Grind safety stops (any GRINDING run, incl. top-up pulses) - each ends
+// the grind back to IDLE (not ERROR, so no reboot/app needed), shows the
+// reason on the OLED for GRIND_ALERT_SHOW_MS, and is logged. Added after a
+// grind (2026-09-28, boot 5) where the weight read 0 mid-grind - Timemore
+// likely reset - and the motor only stopped at MOTOR_MAX_RUNTIME_MS.
+#define GRIND_STALL_TIMEOUT_MS  4000     // no GRIND_STALL_MIN_GAIN_G gain in this long = stalled (frozen scale, empty hopper)
+#define GRIND_STALL_MIN_GAIN_G  0.3f
+#define GRIND_CUP_LIFT_DROP_G   5.0f     // weight this far below the session start = cup lifted off
+#define GRIND_ALERT_SHOW_MS     10000
 
 #define STATE_MACHINE_UPDATE_MS 100
 #define MOTOR_MAX_RUNTIME_MS    30000    // 30s safety timeout

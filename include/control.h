@@ -79,9 +79,17 @@ private:
 
     // Top-up sequence for the current grind session (see TOPUP_* in config.h).
     uint8_t _topup_pulses_done = 0;
-    // Set by an app Stop/E-Stop during a session - a deliberate stop must
-    // never be "topped up", nor learned from as if it were a completion.
-    bool _grind_stopped_by_user = false;
+    // Set by an app Stop/E-Stop or a safety stop during a session - such a
+    // grind must never be "topped up", nor learned from as a completion.
+    bool _grind_aborted = false;
+
+    // Grind safety (see GRIND_STALL_* / GRIND_CUP_LIFT_DROP_G in config.h):
+    // weight must gain GRIND_STALL_MIN_GAIN_G within GRIND_STALL_TIMEOUT_MS
+    // of the last such gain.
+    float _stall_ref_weight_g = 0.0f;
+    uint32_t _stall_ref_ms = 0;
+    char _alert_label[16] = "";
+    uint32_t _alert_until_ms = 0;
 
     uint32_t _last_sensor_read_ms = 0;
     uint32_t _last_state_update_ms = 0;
@@ -120,6 +128,9 @@ private:
     void runStateMachine(uint32_t now);
     void updateOvershootLearning(float session_start_weight_g, float target_weight_g, uint8_t profile_id);
     void maybeStartTopUp(float session_start_weight_g, float target_weight_g);
+    bool weightSourceLost() const;
+    void checkGrindSafety(uint32_t now);
+    void safetyStop(uint32_t now, const char *log_result, const char *oled_label);
 
     long sampleRawAveraged(uint8_t samples);
     void handleTare();
