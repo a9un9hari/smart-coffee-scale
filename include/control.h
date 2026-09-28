@@ -89,6 +89,7 @@ private:
 
     bool _cup_settling = false;
     uint32_t _cup_settle_start_ms = 0;
+    float _cup_settle_ref_g = 0.0f;
 
     // Light exponential smoothing on top of HX711::readWeight()'s own 5-sample
     // burst average - cuts the residual ADC jitter the app was showing on

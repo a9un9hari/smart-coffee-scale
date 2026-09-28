@@ -105,6 +105,13 @@
 #define MOTOR_MAX_RUNTIME_MS    30000    // 30s safety timeout
 #define ESPRESSO_STABLE_MS      3000     // weight stable = shot done
 #define CUP_DETECT_SETTLE_MS    400      // weight must hold near cup profile this long before auto-start
+// ...and stay within this band of where the hold started. Without it the
+// session start weight (the dose's zero point) was captured while the
+// smoothed reading was still climbing after the cup landed - inside the
+// +/-tolerance window but up to ~0.5g low - which made every dose read
+// that much high (OLED 15.2g vs 15.0g on a reference scale, 2026-09-28)
+// and the grind stop that much early.
+#define CUP_DETECT_STABLE_BAND_G 0.15f
 #define DISPLAY_REFRESH_MS      200      // OLED refresh (~5Hz) - each full refresh blocks ~25ms, see display.h
 #define DISPLAY_SPLASH_MS       2000     // boot splash hold, non-blocking
 #define DISPLAY_DONE_HOLD_MS    15000    // keep showing the net dose + "DONE" this long after a grind

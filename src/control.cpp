@@ -143,9 +143,11 @@ void GrinderController::readCupDetect(uint32_t now) {
         return;
     }
 
-    if (!_cup_settling) {
+    if (!_cup_settling || fabsf(_status.current_weight_g - _cup_settle_ref_g) > CUP_DETECT_STABLE_BAND_G) {
+        // (re)start the hold - weight still moving, see CUP_DETECT_STABLE_BAND_G
         _cup_settling = true;
         _cup_settle_start_ms = now;
+        _cup_settle_ref_g = _status.current_weight_g;
     } else if (now - _cup_settle_start_ms >= CUP_DETECT_SETTLE_MS) {
         _state_machine.onEvent(EVT_CUP_DETECTED);
         _cup_settling = false;
