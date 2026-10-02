@@ -386,6 +386,10 @@ class GrinderBleManager(private val context: Context) {
                 sendOtaWindow(send)
             } else if (!send.endQueued) {
                 send.endQueued = true
+                // Verify + reboot legitimately take a moment and end with the
+                // link dropping - no longer a "stall"; a drop from here on is
+                // handled as a likely success (GrinderViewModel).
+                otaHandler.removeCallbacks(otaStallCheck)
                 enqueue {
                     writeChar(send.g, send.ctrl, BleOtaProtocol.end())
                     send.g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)

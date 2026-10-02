@@ -180,6 +180,12 @@ public:
         }
         std::string raw = characteristic->getValue();
         ota->onControlWrite((const uint8_t *)raw.data(), raw.size());
+        // Report the outcome (BEGIN accepted/refused, END verified/failed)
+        // from here, not the main loop: if the loop is held up (e.g. OLED
+        // I2C timeouts on a bad cable), it could reach the post-SUCCESS
+        // reboot before its own notify ever went out - seen 2026-09-28 as
+        // a verified update the app reported as "transfer stalled".
+        _server->notifyBleOtaStatusNow();
     }
 
 private:
