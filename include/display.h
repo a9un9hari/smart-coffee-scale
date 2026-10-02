@@ -14,11 +14,19 @@
 // answers, update() becomes a no-op so the grinder runs exactly as before
 // without the module attached.
 //
-// A full-frame refresh blocks the calling loop for roughly 25ms at
-// 400kHz I2C, so update() is rate-limited to DISPLAY_REFRESH_MS and is
-// called after the state machine in GrinderController::update() - a
-// refresh can delay the next stop check slightly but never one that was
-// already due.
+// Frames are drawn into the buffer every DISPLAY_REFRESH_MS but sent to
+// the panel one 8-pixel tile row per update() call (~12ms each at 100kHz,
+// see OLED_I2C_HZ) instead of one ~100ms blocking sendBuffer(), so the
+// main loop - and the grind stop check - is never held for long. update()
+// is also called after the state machine in GrinderController::update().
+//
+// Recovery: a corrupted command on a long, noisy I2C line can leave the
+// SSD1306 all-white (entire-display-on), inverted, or off. Every
+// DISPLAY_RECOVER_MS the controller's "follow RAM / normal / charge pump
+// on / display on" commands are resent - none of them depend on panel
+// orientation and none blank the screen, so a glitched panel heals within
+// seconds without a visible flicker; the row-by-row resend repaints the
+// content itself.
 class Display {
 public:
     Display();
@@ -37,6 +45,11 @@ private:
     uint32_t _last_refresh_ms = 0;
     uint32_t _splash_until_ms = 0;
     bool _refresh_timing_logged = false;
+    uint8_t _next_row = 0;      // next tile row (0-7) of the current frame to send
+    bool _frame_pending = false; // a rendered frame is still being sent row by row
+    uint32_t _last_recover_ms = 0;
+
+    void sendRecoveryCommands();
 
     // "DONE" hold after a grind: GRINDING -> IDLE latches the session's
     // start weight so the big number keeps showing the net dose (not the

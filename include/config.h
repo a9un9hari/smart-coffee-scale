@@ -23,7 +23,13 @@
 #define PIN_HX711_DOUT      0
 #define PIN_HX711_CLK       1
 
-// Motor control (SSR-40 DA relay)
+// Motor control: relay via BC547 driver (GPIO -> 1k -> base), HIGH = on.
+// GPIO2 is a boot strapping pin - the chip, not this firmware, sets its
+// level for the first few hundred ms after reset, and that briefly
+// switched the relay on and started the grinder on every boot/OTA reboot
+// (2026-09-28). main.cpp forces it LOW as early as firmware can, but the
+// real fix is hardware: move the relay drive to GPIO3 (not strapping, not
+// USB/flash) and add a 10k base-to-GND pull-down on the BC547.
 #define PIN_MOTOR_SSR       2
 
 // SSD1306 0.96" 128x64 I2C OLED (optional - firmware runs without it).
@@ -31,6 +37,11 @@
 #define PIN_OLED_SDA        10
 #define PIN_OLED_SCL        8
 #define OLED_I2C_ADDR       0x3C
+// 100kHz, not 400kHz: on a 50cm shielded cable to an OLED mounted outside
+// the grinder, 400kHz gave glitched frames and occasional all-white
+// screens (2026-09-28). The frame is sent one tile row per loop pass (see
+// Display) so the slower bus doesn't hold the main loop for ~100ms.
+#define OLED_I2C_HZ         100000
 
 // ============================================================
 // SENSOR CONSTANTS
@@ -131,6 +142,7 @@
 // and the grind stop that much early.
 #define CUP_DETECT_STABLE_BAND_G 0.15f
 #define DISPLAY_REFRESH_MS      200      // OLED refresh (~5Hz) - each full refresh blocks ~25ms, see display.h
+#define DISPLAY_RECOVER_MS      5000     // resend the OLED's "show RAM / normal / on" commands this often
 #define DISPLAY_SPLASH_MS       2000     // boot splash hold, non-blocking
 #define DISPLAY_DONE_HOLD_MS    15000    // keep showing the net dose + "DONE" this long after a grind
 #define BLE_NOTIFY_INTERVAL_MS  150      // status notify throttle (~6-7Hz)

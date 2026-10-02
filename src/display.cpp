@@ -5,7 +5,7 @@
 Display::Display() : _oled(U8G2_R0, U8X8_PIN_NONE) {}
 
 bool Display::begin() {
-    Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL, 400000);
+    Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL, OLED_I2C_HZ);
     Wire.beginTransmission(OLED_I2C_ADDR);
     _present = (Wire.endTransmission() == 0);
     Serial.printf("[DISPLAY] OLED at 0x%02X %s\n", OLED_I2C_ADDR, _present ? "found" : "not found - display disabled");
@@ -14,7 +14,7 @@ bool Display::begin() {
     }
 
     _oled.setI2CAddress(OLED_I2C_ADDR * 2); // U8g2 wants the 8-bit (shifted) address
-    _oled.setBusClock(400000);
+    _oled.setBusClock(OLED_I2C_HZ);
     _oled.begin();
     _oled.clearBuffer();
     _oled.setFont(u8g2_font_ncenB12_tr);
@@ -63,17 +63,48 @@ void Display::update(uint32_t now, const SystemStatus &status, const char *phase
     }
     _prev_state = status.state;
 
-    if ((int32_t)(now - _splash_until_ms) < 0 || now - _last_refresh_ms < DISPLAY_REFRESH_MS) {
+    if ((int32_t)(now - _splash_until_ms) < 0) {
         return; // splash stays up without blocking the loop
     }
-    _last_refresh_ms = now;
 
-    uint32_t start_us = micros();
-    render(now, status, phase_label, session_start_weight_g, cup, cup_id, weight_source, timemore_connected);
-    if (!_refresh_timing_logged) {
-        Serial.printf("[DISPLAY] full refresh took %lu us\n", (unsigned long)(micros() - start_us));
-        _refresh_timing_logged = true;
+    // Finish sending the current frame first, one tile row per call - the
+    // buffer isn't redrawn mid-send, so a frame never mixes two states.
+    if (_frame_pending) {
+        uint32_t start_us = micros();
+        _oled.updateDisplayArea(0, _next_row, 16, 1);
+        if (!_refresh_timing_logged) {
+            Serial.printf("[DISPLAY] one tile row took %lu us\n", (unsigned long)(micros() - start_us));
+            _refresh_timing_logged = true;
+        }
+        if (++_next_row >= 8) {
+            _frame_pending = false;
+        }
+        return;
     }
+
+    if (now - _last_recover_ms >= DISPLAY_RECOVER_MS) {
+        _last_recover_ms = now;
+        sendRecoveryCommands();
+    }
+
+    if (now - _last_refresh_ms < DISPLAY_REFRESH_MS) {
+        return;
+    }
+    _last_refresh_ms = now;
+    render(now, status, phase_label, session_start_weight_g, cup, cup_id, weight_source, timemore_connected);
+    _next_row = 0;
+    _frame_pending = true;
+}
+
+void Display::sendRecoveryCommands() {
+    u8x8_t *u8x8 = _oled.getU8x8();
+    u8x8_cad_StartTransfer(u8x8);
+    u8x8_cad_SendCmd(u8x8, 0xA4); // display follows RAM (undoes a stray 0xA5 "entire display on" = all white)
+    u8x8_cad_SendCmd(u8x8, 0xA6); // normal, not inverted
+    u8x8_cad_SendCmd(u8x8, 0x8D); // charge pump...
+    u8x8_cad_SendCmd(u8x8, 0x14); // ...enabled
+    u8x8_cad_SendCmd(u8x8, 0xAF); // display on
+    u8x8_cad_EndTransfer(u8x8);
 }
 
 void Display::render(uint32_t now, const SystemStatus &status, const char *phase_label, float session_start_weight_g,
@@ -145,6 +176,5 @@ void Display::render(uint32_t now, const SystemStatus &status, const char *phase
         _oled.drawFrame(0, 57, 128, 7);
         _oled.drawBox(1, 58, (uint8_t)(126 * frac), 5);
     }
-
-    _oled.sendBuffer();
+    // Sent row by row from update(), not here - see display.h.
 }
